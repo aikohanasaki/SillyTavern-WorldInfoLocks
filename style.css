@@ -5,7 +5,15 @@
 	gap: 1em;
 	align-items: baseline;
 
+	filter: saturate(0.5);
 	margin-right: 1em;
+	opacity: 0.25;
+	transition: 200ms;
+
+	&:hover {
+		opacity: 1;
+		filter: saturate(1.0);
+	}
 
 	> .stwip--actions {
 		display: flex;
