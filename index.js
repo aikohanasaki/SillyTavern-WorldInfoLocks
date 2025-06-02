@@ -8,7 +8,7 @@ import { createWorldInfoEntry, deleteWIOriginalDataValue, deleteWorldInfoEntry, 
 
 
 
-class Settings {
+export class Settings {
     static from(props) {
         props.presetList = props.presetList?.map(it=>Preset.from(it)) ?? [];
         const instance = Object.assign(new this(), props);
@@ -21,7 +21,7 @@ class Settings {
         return this.presetList.find(it=>it.name == this.presetName);
     }
 }
-class Preset {
+export class Preset {
     static from(props) {
         const instance = Object.assign(new this(), props);
         return instance;
@@ -37,7 +37,7 @@ class Preset {
     }
 }
 /**@type {Settings}*/
-const settings = Settings.from(extension_settings.worldInfoPresets ?? {});
+export const settings = Settings.from(extension_settings.worldInfoPresets ?? {});
 
 /**@type {HTMLSelectElement}*/
 let presetSelect;
@@ -45,7 +45,7 @@ let presetSelect;
 const activatePresetByName = async(name)=>{
     await activatePreset(settings.presetList.find(it=>it.name.toLowerCase() == name.toLowerCase()));
 };
-const activatePreset = async(preset)=>{
+export const activatePreset = async(preset)=>{
     //TODO use delta instead of brute force
     await executeSlashCommands('/world silent=true {{newline}}');
     settings.presetName = preset?.name ?? '';
