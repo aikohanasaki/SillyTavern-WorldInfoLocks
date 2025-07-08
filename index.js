@@ -221,7 +221,7 @@ export const activatePreset = async(preset, skipLockCheck = false)=>{
     
     // Unload books that shouldn't be active
     for (const book of booksToUnload) {
-        await executeSlashCommands(`/world silent=true disable=${book}`);
+        await executeSlashCommands(`/world state=off silent=true ${book}`);
     }
     
     // Load books that should be active
@@ -314,18 +314,19 @@ async function showLockSettings() {
     const chatLock = getChatLock();
     const characterLock = getCharacterLock(context.characterName);
     
-    const characterLockCheckbox = context.isGroupChat ? '' : `
+    const characterLockHtml = context.isGroupChat ? '' : `
         <label class="checkbox_label">
             <input type="checkbox" id="characterLockCheckbox" ${characterLock ? 'checked' : ''}>
             <span>Lock to character${context.characterName ? ` (${context.characterName})` : ''}</span>
         </label>
     `;
-    
-    const popupContent = `
+
+    const content = document.createElement('div');
+    content.innerHTML = `
         <h3>Preset Locks</h3>
         <p>Lock the current preset "${settings.presetName || 'None'}" to this context:</p>
         <div>
-            ${characterLockCheckbox}
+            ${characterLockHtml}
             <label class="checkbox_label">
                 <input type="checkbox" id="chatLockCheckbox" ${chatLock ? 'checked' : ''}>
                 <span>Lock to chat</span>
@@ -334,12 +335,11 @@ async function showLockSettings() {
         ${context.isGroupChat ? '<p><small>Character locks are disabled in group chats.</small></p>' : ''}
     `;
     
-    const result = await callPopup(popupContent, 'confirm');
+    const result = await callPopup(content, 'confirm');
     
     if (result) {
-        const popup = document.querySelector('.popup');
-        const chatLockChecked = popup.querySelector('#chatLockCheckbox')?.checked || false;
-        const characterLockChecked = popup.querySelector('#characterLockCheckbox')?.checked || false;
+        const chatLockChecked = content.querySelector('#chatLockCheckbox')?.checked || false;
+        const characterLockChecked = content.querySelector('#characterLockCheckbox')?.checked || false;
         
         // Update chat lock
         setChatLock(chatLockChecked ? settings.presetName : null);
@@ -366,7 +366,8 @@ async function showLockSettings() {
 }
 
 async function showSettings() {
-    const popupContent = `
+    const content = document.createElement('div');
+    content.innerHTML = `
         <h3>World Info Preset Settings</h3>
         <div>
             <label class="checkbox_label">
@@ -388,14 +389,13 @@ async function showSettings() {
         </div>
     `;
     
-    const result = await callPopup(popupContent, 'confirm');
+    const result = await callPopup(content, 'confirm');
     
     if (result) {
-        const popup = document.querySelector('.popup');
-        settings.enableCharacterLocks = popup.querySelector('#enableCharacterLocks')?.checked || false;
-        settings.enableChatLocks = popup.querySelector('#enableChatLocks')?.checked || false;
-        settings.preferChatOverCharacterLocks = popup.querySelector('#preferChatOverCharacterLocks')?.checked || false;
-        settings.showLockNotifications = popup.querySelector('#showLockNotifications')?.checked || false;
+        settings.enableCharacterLocks = content.querySelector('#enableCharacterLocks')?.checked || false;
+        settings.enableChatLocks = content.querySelector('#enableChatLocks')?.checked || false;
+        settings.preferChatOverCharacterLocks = content.querySelector('#preferChatOverCharacterLocks')?.checked || false;
+        settings.showLockNotifications = content.querySelector('#showLockNotifications')?.checked || false;
         
         saveSettingsDebounced();
     }
@@ -668,13 +668,15 @@ const init = ()=>{
                 btnExport.classList.add('menu_button');
                 btnExport.classList.add('fa-solid', 'fa-file-export');
                 btnExport.title = 'Export the current preset';
-                btnExport.addEventListener('click', async()=>{
+                btnExport.addEventListener('click', async () => {
                     if (!settings.preset) {
                         toastr.warning('No preset selected to export');
                         return;
                     }
-                    
-                    const popupText = `
+
+                    // Create a container element for the popup's content
+                    const content = document.createElement('div');
+                    content.innerHTML = `
                         <h3>Export World Info Preset: "${settings.presetName}"</h3>
                         <div>
                             <label class="checkbox_label">
@@ -688,15 +690,17 @@ const init = ()=>{
                         </div>
                         <p><small>By default, exports the preset's defined book list. Check the second option to export your current working selection instead.</small></p>
                     `;
-                    const result = await callPopup(popupText, 'confirm');
+
+                    // Pass the element to the popup function
+                    const result = await callPopup(content, 'confirm');
                     if (!result) return;
-                    
-                    const popup = document.querySelector('.popup');
-                    const includeBooks = popup.querySelector('#includeBooks')?.checked || false;
-                    const useCurrentSelection = popup.querySelector('#useCurrentSelection')?.checked || false;
-                    
+
+                    // Read checkbox values from the content element (still exists in memory)
+                    const includeBooks = content.querySelector('#includeBooks')?.checked || false;
+                    const useCurrentSelection = content.querySelector('#useCurrentSelection')?.checked || false;
+
                     const data = settings.preset.toJSON();
-                    
+
                     // Include character locks in export
                     const relevantLocks = {};
                     for (const [charName, lockedPreset] of Object.entries(settings.characterLocks)) {
@@ -707,9 +711,8 @@ const init = ()=>{
                     if (Object.keys(relevantLocks).length > 0) {
                         data.characterLocks = relevantLocks;
                     }
-                    
+
                     if (includeBooks) {
-                        // Use current selection or preset definition
                         let names = useCurrentSelection ? world_info.globalSelect : settings.preset?.worldList || [];
                         const books = {};
                         for (const book of names) {
@@ -720,15 +723,14 @@ const init = ()=>{
                         }
                         data.books = books;
                     }
-                    const blob = new Blob([JSON.stringify(data)], { type:'text' });
+
+                    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
                     const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a'); {
-                        a.href = url;
-                        const name = `SillyTavern-WorldInfoPreset-${settings.presetName}`;
-                        const ext = 'json';
-                        a.download = `${name}.${ext}`;
-                        a.click();
-                    }
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `SillyTavern-WorldInfoPreset-${settings.presetName}.json`;
+                    a.click();
+                    URL.revokeObjectURL(url); // Clean up
                 });
                 actions.append(btnExport);
             }
