@@ -61,7 +61,7 @@ function getCharacterNameForSettings() {
         source = 'chat_metadata';
 
         if (!rawCharacterName) {
-            console.warn('STWIP: No character name available in name2 or chat_metadata');
+            console.warn('STAUPresets: No character name available in name2 or chat_metadata');
             return null;
         }
     }
@@ -73,8 +73,8 @@ function getCharacterNameForSettings() {
         characterName = characterName.normalize('NFC');
     }
 
-    console.log(`STWIP: Raw character name from ${source}:`, rawCharacterName);
-    console.log('STWIP: Normalized character name:', characterName);
+    console.log(`STAUPresets: Raw character name from ${source}:`, rawCharacterName);
+    console.log('STAUPresets: Normalized character name:', characterName);
 
     return characterName;
 }
@@ -178,7 +178,7 @@ async function checkAndApplyLocks() {
     }
     
     if (attempts >= maxAttempts) {
-        console.warn('STWIP: Timed out waiting for character/chat data to load for lock check');
+        console.warn('STAUPresets: Timed out waiting for character/chat data to load for lock check');
     }
 }
 
@@ -518,7 +518,7 @@ const createPreset = async()=>{
 function onCharacterChanged() {
     if (!settings.enableCharacterLocks && !settings.enableChatLocks) return;
     
-    console.log('STWIP: Character changed');
+    console.log('STAUPresets: Character changed');
     updateLockButton();
     setTimeout(() => {
         checkAndApplyLocks();
@@ -528,7 +528,7 @@ function onCharacterChanged() {
 function onChatChanged() {
     if (!settings.enableChatLocks) return;
     
-    console.log('STWIP: Chat changed');
+    console.log('STAUPresets: Chat changed');
     updateLockButton();
     setTimeout(() => {
         checkAndApplyLocks();
@@ -538,15 +538,15 @@ function onChatChanged() {
 const init = ()=>{
     const container = document.querySelector('#WorldInfo > div > h3');
     if (!container) {
-        console.warn('STWIP: WorldInfo container not found, retrying in 500ms...');
+        console.warn('STAUPresets: WorldInfo container not found, retrying in 500ms...');
         setTimeout(init, 500);
         return;
     }
     
     const dom = document.createElement('div'); {
-        dom.classList.add('stwip--container');
+        dom.classList.add('staup-container');
         presetSelect = document.createElement('select'); {
-            presetSelect.classList.add('stwip--preset');
+            presetSelect.classList.add('staup-preset');
             const blank = document.createElement('option'); {
                 blank.value = '';
                 blank.textContent = '--- Pick a Preset ---';
@@ -567,11 +567,11 @@ const init = ()=>{
             dom.append(presetSelect);
         }
         const actions = document.createElement('div'); {
-            actions.classList.add('stwip--actions');
+            actions.classList.add('staup-actions');
             
             // Lock button
             lockButton = document.createElement('div'); {
-                lockButton.classList.add('stwip--action');
+                lockButton.classList.add('staup-action');
                 lockButton.classList.add('menu_button');
                 lockButton.classList.add('fa-solid', 'fa-lock');
                 lockButton.title = 'Preset locks';
@@ -581,7 +581,7 @@ const init = ()=>{
             
             // Settings button
             settingsButton = document.createElement('div'); {
-                settingsButton.classList.add('stwip--action');
+                settingsButton.classList.add('staup-action');
                 settingsButton.classList.add('menu_button');
                 settingsButton.classList.add('fa-solid', 'fa-gear');
                 settingsButton.title = 'Settings';
@@ -590,7 +590,7 @@ const init = ()=>{
             }
             
             const btnRename = document.createElement('div'); {
-                btnRename.classList.add('stwip--action');
+                btnRename.classList.add('staup-action');
                 btnRename.classList.add('menu_button');
                 btnRename.classList.add('fa-solid', 'fa-pencil');
                 btnRename.title = 'Rename current preset';
@@ -620,7 +620,7 @@ const init = ()=>{
                 actions.append(btnRename);
             }
             const btnUpdate = document.createElement('div'); {
-                btnUpdate.classList.add('stwip--action');
+                btnUpdate.classList.add('staup-action');
                 btnUpdate.classList.add('menu_button');
                 btnUpdate.classList.add('fa-solid', 'fa-save');
                 btnUpdate.title = 'Update current preset';
@@ -632,7 +632,7 @@ const init = ()=>{
                 actions.append(btnUpdate);
             }
             const btnCreate = document.createElement('div'); {
-                btnCreate.classList.add('stwip--action');
+                btnCreate.classList.add('staup-action');
                 btnCreate.classList.add('menu_button');
                 btnCreate.classList.add('fa-solid', 'fa-file-circle-plus');
                 btnCreate.title = 'Save current preset as';
@@ -640,7 +640,7 @@ const init = ()=>{
                 actions.append(btnCreate);
             }
             const btnRestore = document.createElement('div'); {
-                btnRestore.classList.add('stwip--action');
+                btnRestore.classList.add('staup-action');
                 btnRestore.classList.add('menu_button');
                 btnRestore.classList.add('fa-solid', 'fa-rotate-left');
                 btnRestore.title = 'Restore current preset';
@@ -648,7 +648,7 @@ const init = ()=>{
                 actions.append(btnRestore);
             }
             const importFile = document.createElement('input'); {
-                importFile.classList.add('stwip--importFile');
+                importFile.classList.add('staup-importFile');
                 importFile.type = 'file';
                 importFile.addEventListener('change', async()=>{
                     await importPreset(importFile.files);
@@ -656,7 +656,7 @@ const init = ()=>{
                 });
             }
             const btnImport = document.createElement('div'); {
-                btnImport.classList.add('stwip--action');
+                btnImport.classList.add('staup-action');
                 btnImport.classList.add('menu_button');
                 btnImport.classList.add('fa-solid', 'fa-file-import');
                 btnImport.title = 'Import preset';
@@ -664,7 +664,7 @@ const init = ()=>{
                 actions.append(btnImport);
             }
             const btnExport = document.createElement('div'); {
-                btnExport.classList.add('stwip--action');
+                btnExport.classList.add('staup-action');
                 btnExport.classList.add('menu_button');
                 btnExport.classList.add('fa-solid', 'fa-file-export');
                 btnExport.title = 'Export the current preset';
@@ -733,7 +733,7 @@ const init = ()=>{
                 actions.append(btnExport);
             }
             const btnDelete = document.createElement('div'); {
-                btnDelete.classList.add('stwip--action');
+                btnDelete.classList.add('staup-action');
                 btnDelete.classList.add('menu_button');
                 btnDelete.classList.add('redWarningBG');
                 btnDelete.classList.add('fa-solid', 'fa-trash-can');
@@ -792,7 +792,7 @@ const init = ()=>{
 
     const sel = document.querySelector('#world_editor_select');
     if (!sel) {
-        console.warn('STWIP: World editor select not found, book rename detection disabled');
+        console.warn('STAUPresets: World editor select not found, book rename detection disabled');
         return;
     }
     
