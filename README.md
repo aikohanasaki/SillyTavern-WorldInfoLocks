@@ -1,16 +1,11 @@
-# Silly Tavern - World Info Presets
+# STAUPresets
 
-![](README/wip-01.png)
+STAUPresets is a fork of [SillyTavern-WorldInfoPresets](https://github.com/LenAnderson/SillyTavern-WorldInfoPresets/). 
+
+## Added functions
 
 
-## Slash Commands
 
-```stscript
-/echo activate my preset |
-/wipreset my preset
-```
+## Removed functions
 
-```stscript
-/echo deactivate preset |
-/wipreset
-```
+The little truck has been removed as ST now natively supports moving lorebook entries as of release 1.13.1. (Copying requires one more step, but it is not onerous IMHO.)
