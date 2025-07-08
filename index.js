@@ -1,7 +1,3 @@
-// World Info Preset Locking Extension for SillyTavern
-// Features: Character & chat locks, import/export, rename detection, transfer functionality
-// Enhanced with robust error handling and DOM safety checks
-
 import { callPopup, eventSource, event_types, getRequestHeaders, saveSettingsDebounced, chat_metadata, name2, systemUserName, neutralCharacterName } from '../../../../script.js';
 import { extension_settings, saveMetadataDebounced } from '../../../extensions.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '../../../popup.js';
@@ -213,17 +209,30 @@ export const activatePreset = async(preset, skipLockCheck = false)=>{
         }
     }
     
-    //TODO use delta instead of brute force
-    await executeSlashCommands('/world silent=true {{newline}}');
+    // Use delta approach: only change what's needed instead of brute force
+    const currentlyActive = new Set(world_info.globalSelect || []);
+    const targetBooks = new Set(preset?.worldList || []);
+    
+    // Find books to unload (currently active but not in target)
+    const booksToUnload = [...currentlyActive].filter(book => !targetBooks.has(book));
+    
+    // Find books to load (in target but not currently active)
+    const booksToLoad = [...targetBooks].filter(book => !currentlyActive.has(book));
+    
+    // Unload books that shouldn't be active
+    for (const book of booksToUnload) {
+        await executeSlashCommands(`/world silent=true disable=${book}`);
+    }
+    
+    // Load books that should be active
+    for (const book of booksToLoad) {
+        await executeSlashCommands(`/world silent=true ${book}`);
+    }
+    
+    // Update internal state
     settings.presetName = preset?.name ?? '';
     updateSelect();
     updateLockButton();
-    
-    if (preset) {
-        for (const world of settings.presetList.find(it=>it.name == settings.presetName).worldList) {
-            await executeSlashCommands(`/world silent=true ${world}`);
-        }
-    }
 };
 
 async function updateLocksForContext(presetName) {
@@ -241,8 +250,7 @@ async function updateLocksForContext(presetName) {
 const updateSelect = ()=>{
     if (!presetSelect) return; // Guard against race condition
     
-    /**@type {HTMLOptionElement[]}*/
-    // @ts-ignore
+    // Get all option elements (excluding the blank option)
     const opts = Array.from(presetSelect.children);
 
     const added = [];
@@ -409,6 +417,7 @@ const loadBook = async(name)=>{
         return data;
     } else {
         toastr.warning(`Failed to load World Info book: ${name}`);
+        return null; // Return null on failure to prevent undefined behavior
     }
 };
 
@@ -704,7 +713,10 @@ const init = ()=>{
                         let names = useCurrentSelection ? world_info.globalSelect : settings.preset?.worldList || [];
                         const books = {};
                         for (const book of names) {
-                            books[book] = await loadBook(book);
+                            const bookData = await loadBook(book);
+                            if (bookData) {
+                                books[book] = bookData;
+                            }
                         }
                         data.books = books;
                     }
@@ -851,7 +863,7 @@ registerSlashCommand('wipreset',
     true,
 );
 
-// Transfer functionality (keeping existing code)
+// Transfer functionality (with improved MutationObserver targeting)
 const initTransfer = ()=>{
     const alterTemplate = ()=>{
         const tpl = document.querySelector('#entry_edit_template');
@@ -1013,25 +1025,47 @@ const initTransfer = ()=>{
         }
     });
     mo.observe(entriesList, { childList:true, subtree:true });
-
-    const loadBook = async(name)=>{
-        const result = await fetch('/api/worldinfo/get', {
-            method: 'POST',
-            headers: getRequestHeaders(),
-            body: JSON.stringify({ name }),
-        });
-        if (result.ok) {
-            return await result.json();
-        } else {
-            toastr.warning(`Failed to load World Info book: ${name}`);
-        }
-    };
-    const saveBook = async(name, data)=>{
-        await fetch('/api/worldinfo/edit', {
-            method: 'POST',
-            headers: getRequestHeaders(),
-            body: JSON.stringify({ name, data }),
-        });
-        eventSource.emit(event_types.WORLDINFO_UPDATED, name, data);
-    };
 };
+
+// Improved MutationObserver targeting - watch for World Info popup specifically
+const waitForWorldInfoPopup = () => {
+    // First, try to find if the popup already exists
+    const existingPopup = document.querySelector('#world_popup_entries_list');
+    if (existingPopup) {
+        console.log('STWIP: World Info popup already exists, initializing transfer functionality');
+        initTransfer();
+        return;
+    }
+
+    // If not found, watch for it to appear in a more targeted way
+    const targetContainer = document.querySelector('#shadow_popup') || document.body;
+    const transferObserver = new MutationObserver((mutationsList, obs) => {
+        for (const mutation of mutationsList) {
+            if (mutation.type === 'childList') {
+                for (const addedNode of mutation.addedNodes) {
+                    if (addedNode.nodeType === Node.ELEMENT_NODE) {
+                        // Check if this is the world info popup or contains it
+                        const worldEntriesList = addedNode.querySelector ? 
+                            addedNode.querySelector('#world_popup_entries_list') || 
+                            (addedNode.id === 'world_popup_entries_list' ? addedNode : null) : null;
+                        
+                        if (worldEntriesList) {
+                            console.log('STWIP: World Info popup detected, initializing transfer functionality');
+                            initTransfer();
+                            obs.disconnect();
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    transferObserver.observe(targetContainer, {
+        childList: true,
+        subtree: true
+    });
+};
+
+// Initialize the World Info popup detection
+waitForWorldInfoPopup();
