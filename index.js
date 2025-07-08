@@ -1,12 +1,13 @@
-import { callPopup, eventSource, event_types, getRequestHeaders, saveSettingsDebounced } from '../../../../script.js';
-import { extension_settings } from '../../../extensions.js';
+// World Info Preset Locking Extension for SillyTavern
+// Features: Character & chat locks, import/export, rename detection, transfer functionality
+// Enhanced with robust error handling and DOM safety checks
+
+import { callPopup, eventSource, event_types, getRequestHeaders, saveSettingsDebounced, chat_metadata, name2, systemUserName, neutralCharacterName } from '../../../../script.js';
+import { extension_settings, saveMetadataDebounced } from '../../../extensions.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '../../../popup.js';
 import { executeSlashCommands, registerSlashCommand } from '../../../slash-commands.js';
 import { delay, navigation_option } from '../../../utils.js';
 import { createWorldInfoEntry, deleteWIOriginalDataValue, deleteWorldInfoEntry, importWorldInfo, loadWorldInfo, saveWorldInfo, world_info } from '../../../world-info.js';
-
-
-
 
 export class Settings {
     static from(props) {
@@ -17,10 +18,17 @@ export class Settings {
     }
     /**@type {String}*/ presetName;
     /**@type {Preset[]}*/ presetList = [];
+    /**@type {Object.<string, string>}*/ characterLocks = {}; // characterName -> presetName
+    /**@type {boolean}*/ preferChatOverCharacterLocks = false;
+    /**@type {boolean}*/ enableCharacterLocks = true;
+    /**@type {boolean}*/ enableChatLocks = true;
+    /**@type {boolean}*/ showLockNotifications = true;
+    
     get preset() {
         return this.presetList.find(it=>it.name == this.presetName);
     }
 }
+
 export class Preset {
     static from(props) {
         const instance = Object.assign(new this(), props);
@@ -36,20 +44,181 @@ export class Preset {
         };
     }
 }
+
 /**@type {Settings}*/
 export const settings = Settings.from(extension_settings.worldInfoPresets ?? {});
 
 /**@type {HTMLSelectElement}*/
 let presetSelect;
+let lockButton;
+let settingsButton;
+
+// Character and context detection functions (copied from STChatModelTemp)
+function getCharacterNameForSettings() {
+    // Primary: Use name2 variable from script.js
+    let rawCharacterName = name2;
+    let source = 'name2';
+
+    // Fallback: Use chat_metadata.character_name if name2 is not available
+    if (!rawCharacterName || rawCharacterName === systemUserName || rawCharacterName === neutralCharacterName) {
+        rawCharacterName = chat_metadata?.character_name;
+        source = 'chat_metadata';
+
+        if (!rawCharacterName) {
+            console.warn('STWIP: No character name available in name2 or chat_metadata');
+            return null;
+        }
+    }
+
+    let characterName = String(rawCharacterName).trim();
+
+    // Normalize unicode characters to handle special characters consistently
+    if (characterName.normalize) {
+        characterName = characterName.normalize('NFC');
+    }
+
+    console.log(`STWIP: Raw character name from ${source}:`, rawCharacterName);
+    console.log('STWIP: Normalized character name:', characterName);
+
+    return characterName;
+}
+
+function getCurrentContext() {
+    const characterName = getCharacterNameForSettings();
+    const chatId = chat_metadata?.file_name || null;
+    const isGroupChat = !!window.selected_group;
+    
+    return {
+        characterName,
+        chatId,
+        isGroupChat
+    };
+}
+
+function getChatLock() {
+    return chat_metadata?.worldInfoPresetLock || null;
+}
+
+function setChatLock(presetName) {
+    if (!chat_metadata) {
+        window.chat_metadata = {};
+    }
+    if (presetName) {
+        chat_metadata.worldInfoPresetLock = presetName;
+    } else {
+        delete chat_metadata.worldInfoPresetLock;
+    }
+    saveMetadataDebounced();
+}
+
+function getCharacterLock(characterName) {
+    if (!characterName) return null;
+    return settings.characterLocks[characterName] || null;
+}
+
+function setCharacterLock(characterName, presetName) {
+    if (!characterName) return;
+    if (presetName) {
+        settings.characterLocks[characterName] = presetName;
+    } else {
+        delete settings.characterLocks[characterName];
+    }
+    saveSettingsDebounced();
+}
+
+function getLockForContext() {
+    const context = getCurrentContext();
+    const chatLock = getChatLock();
+    const characterLock = getCharacterLock(context.characterName);
+    
+    if (settings.preferChatOverCharacterLocks) {
+        return chatLock || characterLock;
+    } else {
+        return characterLock || chatLock;
+    }
+}
+
+function hasAnyLocks() {
+    const context = getCurrentContext();
+    const chatLock = getChatLock();
+    const characterLock = getCharacterLock(context.characterName);
+    return !!(chatLock || characterLock);
+}
+
+async function checkAndApplyLocks() {
+    // Add robustness for cases where character data isn't loaded yet
+    let attempts = 0;
+    const maxAttempts = 10;
+    
+    while (attempts < maxAttempts) {
+        const lockedPreset = getLockForContext();
+        if (lockedPreset) {
+            const preset = settings.presetList.find(p => p.name === lockedPreset);
+            if (preset) {
+                await activatePreset(preset);
+                if (settings.showLockNotifications) {
+                    const context = getCurrentContext();
+                    const lockType = getChatLock() ? 'chat' : 'character';
+                    toastr.info(`Applied locked preset "${lockedPreset}" for ${lockType}`, 'World Info Presets');
+                }
+                return; // Success
+            } else if (settings.showLockNotifications) {
+                toastr.warning(`Locked preset "${lockedPreset}" not found`, 'World Info Presets');
+                return; // Preset not found, don't retry
+            }
+        }
+        
+        // If we reach here, either no lock or character data not ready
+        const context = getCurrentContext();
+        if (!context.characterName && !context.chatId) {
+            // Wait a bit for data to load
+            await new Promise(resolve => setTimeout(resolve, 100));
+            attempts++;
+            continue;
+        }
+        
+        // Data is available but no locks, exit
+        break;
+    }
+    
+    if (attempts >= maxAttempts) {
+        console.warn('STWIP: Timed out waiting for character/chat data to load for lock check');
+    }
+}
 
 const activatePresetByName = async(name)=>{
-    await activatePreset(settings.presetList.find(it=>it.name.toLowerCase() == name.toLowerCase()));
+    const preset = settings.presetList.find(it=>it.name.toLowerCase() == name.toLowerCase());
+    if (!preset) {
+        toastr.warning(`Preset "${name}" not found`);
+        return;
+    }
+    await activatePreset(preset);
 };
-export const activatePreset = async(preset)=>{
+
+export const activatePreset = async(preset, skipLockCheck = false)=>{
+    // Check if we're changing presets in a locked context
+    if (!skipLockCheck && hasAnyLocks()) {
+        const currentLock = getLockForContext();
+        if (currentLock && preset?.name !== currentLock) {
+            const shouldUpdate = await callPopup(
+                `<h3>Preset Lock Active</h3>
+                <p>This context is locked to preset "${currentLock}" but you're switching to "${preset?.name || 'None'}".</p>
+                <p>Do you want to update the lock to use the new preset?</p>`,
+                'confirm'
+            );
+            
+            if (shouldUpdate) {
+                await updateLocksForContext(preset?.name);
+            }
+        }
+    }
+    
     //TODO use delta instead of brute force
     await executeSlashCommands('/world silent=true {{newline}}');
     settings.presetName = preset?.name ?? '';
     updateSelect();
+    updateLockButton();
+    
     if (preset) {
         for (const world of settings.presetList.find(it=>it.name == settings.presetName).worldList) {
             await executeSlashCommands(`/world silent=true ${world}`);
@@ -57,7 +226,21 @@ export const activatePreset = async(preset)=>{
     }
 };
 
+async function updateLocksForContext(presetName) {
+    const context = getCurrentContext();
+    
+    if (getChatLock()) {
+        setChatLock(presetName);
+    }
+    
+    if (!context.isGroupChat && getCharacterLock(context.characterName)) {
+        setCharacterLock(context.characterName, presetName);
+    }
+}
+
 const updateSelect = ()=>{
+    if (!presetSelect) return; // Guard against race condition
+    
     /**@type {HTMLOptionElement[]}*/
     // @ts-ignore
     const opts = Array.from(presetSelect.children);
@@ -106,6 +289,110 @@ const updateSelect = ()=>{
     presetSelect.value = settings.presetName;
 };
 
+function updateLockButton() {
+    if (!lockButton) return; // Guard against race condition
+    
+    if (hasAnyLocks()) {
+        lockButton.classList.add('toggleEnabled');
+        lockButton.style.color = 'var(--active)';
+    } else {
+        lockButton.classList.remove('toggleEnabled');
+        lockButton.style.color = '';
+    }
+}
+
+async function showLockSettings() {
+    const context = getCurrentContext();
+    const chatLock = getChatLock();
+    const characterLock = getCharacterLock(context.characterName);
+    
+    const characterLockCheckbox = context.isGroupChat ? '' : `
+        <label class="checkbox_label">
+            <input type="checkbox" id="characterLockCheckbox" ${characterLock ? 'checked' : ''}>
+            <span>Lock to character${context.characterName ? ` (${context.characterName})` : ''}</span>
+        </label>
+    `;
+    
+    const popupContent = `
+        <h3>Preset Locks</h3>
+        <p>Lock the current preset "${settings.presetName || 'None'}" to this context:</p>
+        <div>
+            ${characterLockCheckbox}
+            <label class="checkbox_label">
+                <input type="checkbox" id="chatLockCheckbox" ${chatLock ? 'checked' : ''}>
+                <span>Lock to chat</span>
+            </label>
+        </div>
+        ${context.isGroupChat ? '<p><small>Character locks are disabled in group chats.</small></p>' : ''}
+    `;
+    
+    const result = await callPopup(popupContent, 'confirm');
+    
+    if (result) {
+        const popup = document.querySelector('.popup');
+        const chatLockChecked = popup.querySelector('#chatLockCheckbox')?.checked || false;
+        const characterLockChecked = popup.querySelector('#characterLockCheckbox')?.checked || false;
+        
+        // Update chat lock
+        setChatLock(chatLockChecked ? settings.presetName : null);
+        
+        // Update character lock (only if not in group chat)
+        if (!context.isGroupChat && context.characterName) {
+            setCharacterLock(context.characterName, characterLockChecked ? settings.presetName : null);
+        }
+        
+        updateLockButton();
+        
+        if (settings.showLockNotifications) {
+            const locks = [];
+            if (chatLockChecked) locks.push('chat');
+            if (characterLockChecked && !context.isGroupChat) locks.push('character');
+            
+            if (locks.length > 0) {
+                toastr.success(`Preset "${settings.presetName}" locked to ${locks.join(' and ')}`, 'World Info Presets');
+            } else {
+                toastr.info('All locks removed', 'World Info Presets');
+            }
+        }
+    }
+}
+
+async function showSettings() {
+    const popupContent = `
+        <h3>World Info Preset Settings</h3>
+        <div>
+            <label class="checkbox_label">
+                <input type="checkbox" id="enableCharacterLocks" ${settings.enableCharacterLocks ? 'checked' : ''}>
+                <span>Enable character locks</span>
+            </label>
+            <label class="checkbox_label">
+                <input type="checkbox" id="enableChatLocks" ${settings.enableChatLocks ? 'checked' : ''}>
+                <span>Enable chat locks</span>
+            </label>
+            <label class="checkbox_label">
+                <input type="checkbox" id="preferChatOverCharacterLocks" ${settings.preferChatOverCharacterLocks ? 'checked' : ''}>
+                <span>Prefer chat locks over character locks</span>
+            </label>
+            <label class="checkbox_label">
+                <input type="checkbox" id="showLockNotifications" ${settings.showLockNotifications ? 'checked' : ''}>
+                <span>Show lock notifications</span>
+            </label>
+        </div>
+    `;
+    
+    const result = await callPopup(popupContent, 'confirm');
+    
+    if (result) {
+        const popup = document.querySelector('.popup');
+        settings.enableCharacterLocks = popup.querySelector('#enableCharacterLocks')?.checked || false;
+        settings.enableChatLocks = popup.querySelector('#enableChatLocks')?.checked || false;
+        settings.preferChatOverCharacterLocks = popup.querySelector('#preferChatOverCharacterLocks')?.checked || false;
+        settings.showLockNotifications = popup.querySelector('#showLockNotifications')?.checked || false;
+        
+        saveSettingsDebounced();
+    }
+}
+
 const loadBook = async(name)=>{
     const result = await fetch('/api/worldinfo/get', {
         method: 'POST',
@@ -125,7 +412,6 @@ const loadBook = async(name)=>{
     }
 };
 
-
 const importBooks = async(data)=>{
     if (data.books && Object.keys(data.books).length > 0) {
         const doImport = await callPopup(`<h3>The preset contains World Info books. Import the books?<h3>`, 'confirm');
@@ -140,8 +426,17 @@ const importBooks = async(data)=>{
     }
 };
 
+const importCharacterLocks = async(data)=>{
+    if (data.characterLocks && Object.keys(data.characterLocks).length > 0) {
+        const doImport = await callPopup(`<h3>The preset contains character locks. Import the character locks?<h3>`, 'confirm');
+        if (doImport) {
+            Object.assign(settings.characterLocks, data.characterLocks);
+            saveSettingsDebounced();
+        }
+    }
+};
+
 /**
- *
  * @param {FileList} files
  */
 const importPreset = async(files)=>{
@@ -149,8 +444,8 @@ const importPreset = async(files)=>{
         await importSinglePreset(files.item(i));
     }
 };
+
 /**
- *
  * @param {File} file
  */
 const importSinglePreset = async(file)=>{
@@ -172,6 +467,7 @@ const importSinglePreset = async(file)=>{
                 if (overwrite) {
                     old.worldList = data.worldList;
                     await importBooks(data);
+                    await importCharacterLocks(data);
                     if (settings.preset == old) {
                         activatePreset(old);
                         saveSettingsDebounced();
@@ -188,6 +484,7 @@ const importSinglePreset = async(file)=>{
         preset.worldList = data.worldList;
         settings.presetList.push(preset);
         await importBooks(data);
+        await importCharacterLocks(data);
         updateSelect();
         saveSettingsDebounced();
     } catch (ex) {
@@ -204,13 +501,39 @@ const createPreset = async()=>{
     settings.presetList.push(preset);
     settings.presetName = name;
     updateSelect();
+    updateLockButton();
     saveSettingsDebounced();
 };
 
+// Event handlers
+function onCharacterChanged() {
+    if (!settings.enableCharacterLocks && !settings.enableChatLocks) return;
+    
+    console.log('STWIP: Character changed');
+    updateLockButton();
+    setTimeout(() => {
+        checkAndApplyLocks();
+    }, 100);
+}
 
+function onChatChanged() {
+    if (!settings.enableChatLocks) return;
+    
+    console.log('STWIP: Chat changed');
+    updateLockButton();
+    setTimeout(() => {
+        checkAndApplyLocks();
+    }, 100);
+}
 
 const init = ()=>{
     const container = document.querySelector('#WorldInfo > div > h3');
+    if (!container) {
+        console.warn('STWIP: WorldInfo container not found, retrying in 500ms...');
+        setTimeout(init, 500);
+        return;
+    }
+    
     const dom = document.createElement('div'); {
         dom.classList.add('stwip--container');
         presetSelect = document.createElement('select'); {
@@ -236,14 +559,50 @@ const init = ()=>{
         }
         const actions = document.createElement('div'); {
             actions.classList.add('stwip--actions');
+            
+            // Lock button
+            lockButton = document.createElement('div'); {
+                lockButton.classList.add('stwip--action');
+                lockButton.classList.add('menu_button');
+                lockButton.classList.add('fa-solid', 'fa-lock');
+                lockButton.title = 'Preset locks';
+                lockButton.addEventListener('click', showLockSettings);
+                actions.append(lockButton);
+            }
+            
+            // Settings button
+            settingsButton = document.createElement('div'); {
+                settingsButton.classList.add('stwip--action');
+                settingsButton.classList.add('menu_button');
+                settingsButton.classList.add('fa-solid', 'fa-gear');
+                settingsButton.title = 'Settings';
+                settingsButton.addEventListener('click', showSettings);
+                actions.append(settingsButton);
+            }
+            
             const btnRename = document.createElement('div'); {
                 btnRename.classList.add('stwip--action');
                 btnRename.classList.add('menu_button');
                 btnRename.classList.add('fa-solid', 'fa-pencil');
                 btnRename.title = 'Rename current preset';
                 btnRename.addEventListener('click', async()=>{
+                    const oldName = settings.presetName;
                     const name = await callPopup('<h3>Rename Preset:</h3>', 'input', settings.presetName);
-                    if (!name) return;
+                    if (!name || name === oldName) return;
+                    
+                    // Update chat lock if it matches
+                    const chatLock = getChatLock();
+                    if (chatLock === oldName) {
+                        setChatLock(name);
+                    }
+                    
+                    // Update character locks that reference this preset
+                    for (const [charName, lockedPreset] of Object.entries(settings.characterLocks)) {
+                        if (lockedPreset === oldName) {
+                            settings.characterLocks[charName] = name;
+                        }
+                    }
+                    
                     settings.preset.name = name;
                     settings.presetName = name;
                     updateSelect();
@@ -276,7 +635,7 @@ const init = ()=>{
                 btnRestore.classList.add('menu_button');
                 btnRestore.classList.add('fa-solid', 'fa-rotate-left');
                 btnRestore.title = 'Restore current preset';
-                btnRestore.addEventListener('click', ()=>activatePreset(settings.preset));
+                btnRestore.addEventListener('click', ()=>activatePreset(settings.preset, true));
                 actions.append(btnRestore);
             }
             const importFile = document.createElement('input'); {
@@ -301,14 +660,48 @@ const init = ()=>{
                 btnExport.classList.add('fa-solid', 'fa-file-export');
                 btnExport.title = 'Export the current preset';
                 btnExport.addEventListener('click', async()=>{
+                    if (!settings.preset) {
+                        toastr.warning('No preset selected to export');
+                        return;
+                    }
+                    
                     const popupText = `
                         <h3>Export World Info Preset: "${settings.presetName}"</h3>
-                        <h4>Include the books' contents in the exported file?</h4>
+                        <div>
+                            <label class="checkbox_label">
+                                <input type="checkbox" id="includeBooks" checked>
+                                <span>Include books' contents in export</span>
+                            </label>
+                            <label class="checkbox_label">
+                                <input type="checkbox" id="useCurrentSelection">
+                                <span>Use currently selected books instead of preset definition</span>
+                            </label>
+                        </div>
+                        <p><small>By default, exports the preset's defined book list. Check the second option to export your current working selection instead.</small></p>
                     `;
-                    const includeBooks = await callPopup(popupText, 'confirm');
+                    const result = await callPopup(popupText, 'confirm');
+                    if (!result) return;
+                    
+                    const popup = document.querySelector('.popup');
+                    const includeBooks = popup.querySelector('#includeBooks')?.checked || false;
+                    const useCurrentSelection = popup.querySelector('#useCurrentSelection')?.checked || false;
+                    
                     const data = settings.preset.toJSON();
+                    
+                    // Include character locks in export
+                    const relevantLocks = {};
+                    for (const [charName, lockedPreset] of Object.entries(settings.characterLocks)) {
+                        if (lockedPreset === settings.presetName) {
+                            relevantLocks[charName] = lockedPreset;
+                        }
+                    }
+                    if (Object.keys(relevantLocks).length > 0) {
+                        data.characterLocks = relevantLocks;
+                    }
+                    
                     if (includeBooks) {
-                        let names = world_info.globalSelect;
+                        // Use current selection or preset definition
+                        let names = useCurrentSelection ? world_info.globalSelect : settings.preset?.worldList || [];
                         const books = {};
                         for (const book of names) {
                             books[book] = await loadBook(book);
@@ -337,9 +730,29 @@ const init = ()=>{
                     if (settings.presetName == '') return;
                     const confirmed = await callPopup(`<h3>Delete World Info Preset "${settings.presetName}"?</h3>`, 'confirm');
                     if (confirmed) {
+                        const presetName = settings.presetName;
+                        
+                        // Remove character locks that reference this preset
+                        for (const [charName, lockedPreset] of Object.entries(settings.characterLocks)) {
+                            if (lockedPreset === presetName) {
+                                delete settings.characterLocks[charName];
+                            }
+                        }
+                        
+                        // Remove chat lock if it references this preset
+                        const chatLock = getChatLock();
+                        if (chatLock === presetName) {
+                            setChatLock(null);
+                        }
+                        
                         settings.presetList.splice(settings.presetList.indexOf(settings.preset), 1);
                         settings.presetName = '';
+                        
+                        // Deactivate all worlds to clear the deleted preset
+                        await activatePreset(null, true);
+                        
                         updateSelect();
+                        updateLockButton();
                         saveSettingsDebounced();
                     }
                 });
@@ -350,10 +763,37 @@ const init = ()=>{
         container.insertAdjacentElement('afterend', dom);
     }
 
+    // Initialize lock button state
+    updateLockButton();
+
+    // Event listeners
+    if (eventSource && event_types) {
+        eventSource.on(event_types.CHARACTER_SELECTED, onCharacterChanged);
+        eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
+        eventSource.on(event_types.CHAT_LOADED, () => {
+            setTimeout(() => {
+                updateLockButton();
+                checkAndApplyLocks();
+            }, 500);
+        });
+    }
+
     const sel = document.querySelector('#world_editor_select');
+    if (!sel) {
+        console.warn('STWIP: World editor select not found, book rename detection disabled');
+        return;
+    }
+    
     let bookNames = Array.from(sel.children).map(it=>it.textContent);
+    let lastRenameCheck = 0; // Throttling for rename detection
     const mo = new MutationObserver(async(muts)=>{
         console.log('[WIP]', '[BOOKS CHANGED]', muts);
+        
+        // Throttle rename detection to avoid excessive processing
+        const now = Date.now();
+        if (now - lastRenameCheck < 1000) return;
+        lastRenameCheck = now;
+        
         const newNames = Array.from(sel.children).map(it=>it.textContent);
         const added = [];
         const removed = [];
@@ -398,9 +838,8 @@ const init = ()=>{
     });
     mo.observe(sel, { childList: true });
 };
+
 init();
-
-
 
 registerSlashCommand('wipreset',
     (args, value)=>{
@@ -412,29 +851,47 @@ registerSlashCommand('wipreset',
     true,
 );
 
-
-
-
+// Transfer functionality (keeping existing code)
 const initTransfer = ()=>{
     const alterTemplate = ()=>{
         const tpl = document.querySelector('#entry_edit_template');
+        if (!tpl) {
+            console.warn('STWIP: Entry edit template not found, transfer functionality disabled');
+            return false;
+        }
+        
+        const duplicateBtn = tpl.querySelector('.duplicate_entry_button');
+        if (!duplicateBtn) {
+            console.warn('STWIP: Duplicate entry button not found, transfer functionality disabled');
+            return false;
+        }
+        
         const transferBtn = document.createElement('i'); {
             transferBtn.classList.add('stwip--transfer');
             transferBtn.classList.add('menu_button');
             transferBtn.classList.add('fa-solid');
             transferBtn.classList.add('fa-truck-arrow-right');
             transferBtn.title = 'Transfer or copy world info entry into another book';
-            tpl.querySelector('.duplicate_entry_button').insertAdjacentElement('beforebegin', transferBtn);
+            duplicateBtn.insertAdjacentElement('beforebegin', transferBtn);
         }
+        return true;
     };
-    alterTemplate();
+    
+    if (!alterTemplate()) return;
 
+    const entriesList = document.querySelector('#world_popup_entries_list');
+    if (!entriesList) {
+        console.warn('STWIP: World entries list not found, transfer functionality disabled');
+        return;
+    }
 
     const mo = new MutationObserver(muts=>{
         for (const entry of [...document.querySelectorAll('#world_popup_entries_list .world_entry:not(.stwip--)')]) {
             const uid = entry.getAttribute('uid');
             entry.classList.add('stwip--');
             const transferBtn = entry.querySelector('.stwip--transfer');
+            if (!transferBtn) continue; // Skip if transfer button not found
+            
             transferBtn.addEventListener('click', async(evt)=>{
                 evt.stopPropagation();
                 let sel;
@@ -533,10 +990,12 @@ const initTransfer = ()=>{
                         }
                         toastr.info('Almost transferred...');
                         document.querySelector('#world_editor_select').value = '';
-                        document.querySelector('#world_editor_select').dispatchEvent(new Event('change', {  bubbles:true }));
-                        await delay(100);
-                        document.querySelector('#world_editor_select').value = [...document.querySelector('#world_editor_select').children].find(it=>it.textContent == srcName).value;
                         let saveProm = new Promise(resolve=>eventSource.once(event_types.WORLDINFO_UPDATED, resolve));
+                        document.querySelector('#world_editor_select').dispatchEvent(new Event('change', {  bubbles:true }));
+                        await saveProm;
+                        
+                        document.querySelector('#world_editor_select').value = [...document.querySelector('#world_editor_select').children].find(it=>it.textContent == srcName).value;
+                        saveProm = new Promise(resolve=>eventSource.once(event_types.WORLDINFO_UPDATED, resolve));
                         document.querySelector('#world_editor_select').dispatchEvent(new Event('change', {  bubbles:true }));
                         await saveProm;
                         if (page !== undefined) {
@@ -553,7 +1012,7 @@ const initTransfer = ()=>{
             });
         }
     });
-    mo.observe(document.querySelector('#world_popup_entries_list'), { childList:true, subtree:true });
+    mo.observe(entriesList, { childList:true, subtree:true });
 
     const loadBook = async(name)=>{
         const result = await fetch('/api/worldinfo/get', {
@@ -576,4 +1035,3 @@ const initTransfer = ()=>{
         eventSource.emit(event_types.WORLDINFO_UPDATED, name, data);
     };
 };
-initTransfer();

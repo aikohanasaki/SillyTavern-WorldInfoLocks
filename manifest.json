@@ -1,11 +1,11 @@
 {
-    "display_name": "WorldInfo Presets",
+    "display_name": "STAUPresets",
     "loading_order": 100,
     "requires": [],
     "optional": [],
     "js": "index.js",
     "css": "style.css",
-    "author": "LenAnderson",
-    "version": "1.8.0",
-    "homePage": "https://github.com/LenAnderson/SillyTavern-WorldInfoPresets"
+    "author": "aikohanasaki; forked from Len Anderson",
+    "version": "1.0.0",
+    "homePage": "https://github.com/aikohanasaki/STAUPresets"
 }
