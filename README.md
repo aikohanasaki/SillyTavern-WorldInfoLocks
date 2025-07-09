@@ -1,4 +1,4 @@
-# World Info Locks
+# World Info Locks (A SillyTavern Extension)
 
 World Info Locks is a fork of [World Info Presets](https://github.com/LenAnderson/SillyTavern-WorldInfoPresets/). 
 
