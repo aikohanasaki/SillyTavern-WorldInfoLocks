@@ -1,6 +1,6 @@
-# STAUPresets
+# World Info Locks
 
-STAUPresets is a fork of [SillyTavern-WorldInfoPresets](https://github.com/LenAnderson/SillyTavern-WorldInfoPresets/). 
+World Info Locks is a fork of [World Info Presets](https://github.com/LenAnderson/SillyTavern-WorldInfoPresets/). 
 
 ## Added functions
 

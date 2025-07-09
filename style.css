@@ -1,4 +1,4 @@
-.staup-container {
+.stwil-container {
 	flex: 1 1 auto;
 	display: flex;
 	flex-direction: row;
@@ -15,14 +15,14 @@
 		filter: saturate(1.0);
 	}
 
-	> .staup-actions {
+	> .stwil-actions {
 		display: flex;
 		flex-direction: row;
 		gap: 0.25em;
 	}
 }
 
-.shadow_popup:has(.staup-transferModal), .popup:has(.staup-transferModal) {
+.shadow_popup:has(.stwil-transferModal), .popup:has(.stwil-transferModal) {
 	.dialogue_popup_ok, .popup-button-ok {
 		&:after {
 			content: 'Transfer';
@@ -38,7 +38,7 @@
 		box-shadow: 0 0 0;
 		transition: 200ms;
 	}
-	.staup-copy {
+	.stwil-copy {
 		&:after {
 			content: 'Copy';
 			height: 0;
@@ -53,17 +53,17 @@
 		box-shadow: 0 0 0;
 		transition: 200ms;
 	}
-	&:has(.staup-worldSelect:focus) {
+	&:has(.stwil-worldSelect:focus) {
 		.dialogue_popup_ok, .popup-button-ok {
 			font-weight: bold;
 			box-shadow: 0 0 10px;
 		}
-		&.staup-isCopy {
+		&.stwil-isCopy {
 			.dialogue_popup_ok, .popup-button-ok {
 				font-weight: normal;
 				box-shadow: 0 0 0;
 			}
-			.staup-copy {
+			.stwil-copy {
 				font-weight: bold;
 				box-shadow: 0 0 10px;
 			}
