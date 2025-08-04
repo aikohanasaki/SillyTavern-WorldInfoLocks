@@ -5,6 +5,11 @@ import { executeSlashCommands, registerSlashCommand } from '../../../slash-comma
 import { delay, navigation_option } from '../../../utils.js';
 import { createWorldInfoEntry, deleteWIOriginalDataValue, deleteWorldInfoEntry, importWorldInfo, loadWorldInfo, saveWorldInfo, world_info } from '../../../world-info.js';
 
+// Context cache to avoid redundant character name lookups
+let cachedContext = null;
+let cacheTimestamp = 0;
+const CACHE_DURATION_MS = 100; // Cache valid for 100ms
+
 export class Settings {
     static from(props) {
         props.presetList = props.presetList?.map(it=>Preset.from(it)) ?? [];
@@ -80,16 +85,37 @@ function getCharacterNameForSettings() {
     return characterName;
 }
 
+// Cache helper functions
+function clearContextCache() {
+    cachedContext = null;
+    cacheTimestamp = 0;
+}
+
+function isCacheValid() {
+    return cachedContext && (Date.now() - cacheTimestamp) < CACHE_DURATION_MS;
+}
+
 function getCurrentContext() {
+    // Return cached context if still valid
+    if (isCacheValid()) {
+        return cachedContext;
+    }
+    
+    // Clear cache and recalculate
+    clearContextCache();
     const characterName = getCharacterNameForSettings();
     const chatId = chat_metadata?.file_name || null;
     const isGroupChat = !!window.selected_group;
     
-    return {
+    // Cache the new context
+    cachedContext = {
         characterName,
         chatId,
         isGroupChat
     };
+    cacheTimestamp = Date.now();
+    
+    return cachedContext;
 }
 
 function getChatLock() {
@@ -612,6 +638,7 @@ const createPreset = async()=>{
 // Event handlers
 function onCharacterChanged() {
     console.log('STWIL: Character changed');
+    clearContextCache(); // Clear cache when character changes
     updateLockButton();
     
     // Always check for locks and global defaults, regardless of lock settings
@@ -624,6 +651,7 @@ function onChatChanged() {
     if (!settings.enableChatLocks) return;
     
     console.log('STWIL: Chat changed');
+    clearContextCache(); // Clear cache when chat changes
     updateLockButton();
     setTimeout(() => {
         checkAndApplyLocks();
@@ -916,6 +944,7 @@ const init = ()=>{
         eventSource.on(event_types.CHARACTER_SELECTED, onCharacterChanged);
         eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
         eventSource.on(event_types.CHAT_LOADED, () => {
+            clearContextCache(); // Clear cache when chat loads
             setTimeout(() => {
                 updateLockButton();
                 checkAndApplyLocks();
