@@ -125,8 +125,8 @@ function setCharacterLock(characterName, presetName) {
 
 function getLockForContext() {
     const context = getCurrentContext();
-    const chatLock = getChatLock();
-    const characterLock = getCharacterLock(context.characterName);
+    const chatLock = settings.enableChatLocks ? getChatLock() : null;
+    const characterLock = settings.enableCharacterLocks ? getCharacterLock(context.characterName) : null;
     
     if (settings.preferChatOverCharacterLocks) {
         return chatLock || characterLock;
@@ -156,8 +156,8 @@ function getEffectivePreset() {
 
 function hasAnyLocks() {
     const context = getCurrentContext();
-    const chatLock = getChatLock();
-    const characterLock = getCharacterLock(context.characterName);
+    const chatLock = settings.enableChatLocks ? getChatLock() : null;
+    const characterLock = settings.enableCharacterLocks ? getCharacterLock(context.characterName) : null;
     return !!(chatLock || characterLock);
 }
 
@@ -166,8 +166,14 @@ async function checkAndApplyLocks() {
     let attempts = 0;
     const maxAttempts = 10;
     
+    console.log('STWIL: checkAndApplyLocks called');
+    console.log('STWIL: Current settings.presetName:', settings.presetName);
+    console.log('STWIL: Global default preset:', settings.globalDefaultPreset);
+    
     while (attempts < maxAttempts) {
         const lockedPreset = getLockForContext();
+        console.log('STWIL: Locked preset for context:', lockedPreset);
+        
         if (lockedPreset) {
             const preset = settings.presetList.find(p => p.name === lockedPreset);
             if (preset) {
@@ -186,23 +192,36 @@ async function checkAndApplyLocks() {
         
         // If we reach here, either no lock or character data not ready
         const context = getCurrentContext();
+        console.log('STWIL: Current context:', context);
+        
         if (!context.characterName && !context.chatId) {
+            console.log('STWIL: Character/chat data not ready, waiting... attempt', attempts + 1);
             // Wait a bit for data to load
             await new Promise(resolve => setTimeout(resolve, 100));
             attempts++;
             continue;
         }
         
-        // Data is available but no locks - check for global default
-        if (!settings.presetName && settings.globalDefaultPreset) {
+        // Data is available but no locks - apply global default for unlocked characters
+        console.log('STWIL: No locks found for this character. Checking if global default should apply.');
+        console.log('STWIL: Current presetName:', settings.presetName, 'globalDefault:', settings.globalDefaultPreset);
+        
+        if (settings.globalDefaultPreset) {
             const defaultPreset = settings.presetList.find(p => p.name === settings.globalDefaultPreset);
+            console.log('STWIL: Found default preset:', defaultPreset?.name);
+            
             if (defaultPreset) {
+                console.log('STWIL: Applying global default preset for unlocked character:', settings.globalDefaultPreset);
                 await activatePreset(defaultPreset);
                 if (settings.showLockNotifications) {
-                    toastr.info(`Applied global default preset "${settings.globalDefaultPreset}"`, 'World Info Presets');
+                    toastr.info(`Applied global default preset "${settings.globalDefaultPreset}" for unlocked character`, 'World Info Presets');
                 }
                 return;
+            } else {
+                console.log('STWIL: Global default preset not found in preset list');
             }
+        } else {
+            console.log('STWIL: No global default configured');
         }
         
         break;
@@ -592,10 +611,10 @@ const createPreset = async()=>{
 
 // Event handlers
 function onCharacterChanged() {
-    if (!settings.enableCharacterLocks && !settings.enableChatLocks) return;
-    
     console.log('STWIL: Character changed');
     updateLockButton();
+    
+    // Always check for locks and global defaults, regardless of lock settings
     setTimeout(() => {
         checkAndApplyLocks();
     }, 100);
