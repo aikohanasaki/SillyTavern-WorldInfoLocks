@@ -641,8 +641,22 @@ const init = ()=>{
             presetSelect.value = settings.presetName ?? '';
             presetSelect.addEventListener('change', async()=>{
                 if (presetSelect.value === '') {
-                    // Handle "--Default--" selection by clearing current preset
-                    await activatePreset(null);
+                    // Handle "--Default--" selection by applying global default if available
+                    if (settings.globalDefaultPreset) {
+                        const defaultPreset = settings.presetList.find(p => p.name === settings.globalDefaultPreset);
+                        if (defaultPreset) {
+                            await activatePreset(defaultPreset);
+                            if (settings.showLockNotifications) {
+                                toastr.info(`Applied global default preset "${settings.globalDefaultPreset}"`, 'World Info Presets');
+                            }
+                        } else {
+                            // Global default preset not found, clear current preset
+                            await activatePreset(null);
+                        }
+                    } else {
+                        // No global default set, clear current preset
+                        await activatePreset(null);
+                    }
                 } else {
                     await activatePresetByName(presetSelect.value);
                 }
