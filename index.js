@@ -640,7 +640,12 @@ const init = ()=>{
             }
             presetSelect.value = settings.presetName ?? '';
             presetSelect.addEventListener('change', async()=>{
-                await activatePresetByName(presetSelect.value);
+                if (presetSelect.value === '') {
+                    // Handle "--Default--" selection by clearing current preset
+                    await activatePreset(null);
+                } else {
+                    await activatePresetByName(presetSelect.value);
+                }
             });
             dom.append(presetSelect);
         }
