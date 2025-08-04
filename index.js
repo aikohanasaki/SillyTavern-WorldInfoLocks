@@ -4,6 +4,7 @@ import { POPUP_RESULT, POPUP_TYPE, Popup } from '../../../popup.js';
 import { executeSlashCommands, registerSlashCommand } from '../../../slash-commands.js';
 import { delay, navigation_option } from '../../../utils.js';
 import { createWorldInfoEntry, deleteWIOriginalDataValue, deleteWorldInfoEntry, importWorldInfo, loadWorldInfo, saveWorldInfo, world_info } from '../../../world-info.js';
+import { selected_group, groups } from '../../../group-chats.js';
 
 // Context cache to avoid redundant character name lookups
 let cachedContext = null;
@@ -57,6 +58,23 @@ let settingsButton;
 
 // Character and context detection functions (copied from STChatModelTemp)
 function getCharacterNameForSettings() {
+    // Check if we're in a group chat first
+    const isGroupChat = !!selected_group;
+    
+    if (isGroupChat) {
+        // For group chats, use the group name as the character identifier
+        const group = groups?.find(x => x.id === selected_group);
+        if (group && group.name) {
+            const groupName = String(group.name).trim();
+            console.log('STWIL: Group chat detected, using group name:', groupName);
+            return groupName;
+        } else {
+            console.warn('STWIL: Group chat detected but no group name available');
+            return null;
+        }
+    }
+    
+    // For single character chats, use existing logic
     // Primary: Use name2 variable from script.js
     let rawCharacterName = name2;
     let source = 'name2';
@@ -104,16 +122,33 @@ function getCurrentContext() {
     // Clear cache and recalculate
     clearContextCache();
     const characterName = getCharacterNameForSettings();
-    const chatId = chat_metadata?.file_name || null;
-    const isGroupChat = !!window.selected_group;
+    const isGroupChat = !!selected_group;
+    let chatId = chat_metadata?.file_name || null;
+    let groupId = null;
+    let groupName = null;
+    
+    if (isGroupChat) {
+        // For group chats, also get group-specific information
+        groupId = selected_group;
+        const group = groups?.find(x => x.id === selected_group);
+        if (group) {
+            groupName = group.name;
+            // Use group's chat_id if available, fallback to metadata file_name
+            chatId = group.chat_id || chatId;
+        }
+    }
     
     // Cache the new context
     cachedContext = {
         characterName,
         chatId,
-        isGroupChat
+        isGroupChat,
+        groupId,
+        groupName
     };
     cacheTimestamp = Date.now();
+    
+    console.log('STWIL: Context updated:', cachedContext);
     
     return cachedContext;
 }
