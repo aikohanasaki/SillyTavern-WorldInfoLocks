@@ -19,6 +19,7 @@ export class Settings {
     /**@type {boolean}*/ enableCharacterLocks = true;
     /**@type {boolean}*/ enableChatLocks = true;
     /**@type {boolean}*/ showLockNotifications = true;
+    /**@type {String}*/ globalDefaultPreset = ''; // Global default preset name
     
     get preset() {
         return this.presetList.find(it=>it.name == this.presetName);
@@ -134,6 +135,25 @@ function getLockForContext() {
     }
 }
 
+function getEffectivePreset() {
+    // Priority: specific lock > current selection > global default
+    const lock = getLockForContext();
+    if (lock) {
+        return settings.presetList.find(p => p.name === lock);
+    }
+    
+    if (settings.presetName) {
+        return settings.preset;
+    }
+    
+    // Fall back to global default if no preset is selected and no locks
+    if (settings.globalDefaultPreset) {
+        return settings.presetList.find(p => p.name === settings.globalDefaultPreset);
+    }
+    
+    return null;
+}
+
 function hasAnyLocks() {
     const context = getCurrentContext();
     const chatLock = getChatLock();
@@ -173,7 +193,18 @@ async function checkAndApplyLocks() {
             continue;
         }
         
-        // Data is available but no locks, exit
+        // Data is available but no locks - check for global default
+        if (!settings.presetName && settings.globalDefaultPreset) {
+            const defaultPreset = settings.presetList.find(p => p.name === settings.globalDefaultPreset);
+            if (defaultPreset) {
+                await activatePreset(defaultPreset);
+                if (settings.showLockNotifications) {
+                    toastr.info(`Applied global default preset "${settings.globalDefaultPreset}"`, 'World Info Presets');
+                }
+                return;
+            }
+        }
+        
         break;
     }
     
@@ -249,6 +280,14 @@ async function updateLocksForContext(presetName) {
 
 const updateSelect = ()=>{
     if (!presetSelect) return; // Guard against race condition
+    
+    // Update the blank option to show global default
+    const blankOption = presetSelect.children[0];
+    if (blankOption && blankOption.value === '') {
+        blankOption.textContent = settings.globalDefaultPreset ? 
+            `--- Default: ${settings.globalDefaultPreset} ---` : 
+            '--- Pick a Preset ---';
+    }
     
     // Get all option elements (excluding the blank option)
     const opts = Array.from(presetSelect.children);
@@ -367,9 +406,24 @@ async function showLockSettings() {
 
 async function showSettings() {
     const content = document.createElement('div');
+    
+    // Generate options for global default preset
+    const presetOptions = settings.presetList
+        .map(preset => `<option value="${preset.name}" ${preset.name === settings.globalDefaultPreset ? 'selected' : ''}>${preset.name}</option>`)
+        .join('');
+    
     content.innerHTML = `
         <h3>World Info Preset Settings</h3>
         <div>
+            <div style="margin-bottom: 10px;">
+                <label for="globalDefaultPreset" style="display: block; font-weight: bold; margin-bottom: 5px;">Global Default Preset:</label>
+                <select id="globalDefaultPreset" style="width: 100%;">
+                    <option value="">None</option>
+                    ${presetOptions}
+                </select>
+                <small style="color: #888;">This preset will be applied when no specific preset is selected and no locks are active.</small>
+            </div>
+            <hr style="margin: 15px 0;">
             <label class="checkbox_label">
                 <input type="checkbox" id="enableCharacterLocks" ${settings.enableCharacterLocks ? 'checked' : ''}>
                 <span>Enable character locks</span>
@@ -392,12 +446,21 @@ async function showSettings() {
     const result = await callPopup(content, 'confirm');
     
     if (result) {
+        const newGlobalDefault = content.querySelector('#globalDefaultPreset')?.value || '';
+        const oldGlobalDefault = settings.globalDefaultPreset;
+        
+        settings.globalDefaultPreset = newGlobalDefault;
         settings.enableCharacterLocks = content.querySelector('#enableCharacterLocks')?.checked || false;
         settings.enableChatLocks = content.querySelector('#enableChatLocks')?.checked || false;
         settings.preferChatOverCharacterLocks = content.querySelector('#preferChatOverCharacterLocks')?.checked || false;
         settings.showLockNotifications = content.querySelector('#showLockNotifications')?.checked || false;
         
         saveSettingsDebounced();
+        
+        // If global default changed and we're in a context with no locks and no preset, apply the new default
+        if (newGlobalDefault !== oldGlobalDefault && !settings.presetName && !hasAnyLocks()) {
+            checkAndApplyLocks();
+        }
     }
 }
 
@@ -445,6 +508,17 @@ const importCharacterLocks = async(data)=>{
     }
 };
 
+const importGlobalDefault = async(data, presetName)=>{
+    if (data.isGlobalDefault) {
+        const doImport = await callPopup(`<h3>This preset was exported as a global default. Set "${presetName}" as your global default?<h3>`, 'confirm');
+        if (doImport) {
+            settings.globalDefaultPreset = presetName;
+            updateSelect();
+            saveSettingsDebounced();
+        }
+    }
+};
+
 /**
  * @param {FileList} files
  */
@@ -477,6 +551,7 @@ const importSinglePreset = async(file)=>{
                     old.worldList = data.worldList;
                     await importBooks(data);
                     await importCharacterLocks(data);
+                    await importGlobalDefault(data, newName);
                     if (settings.preset == old) {
                         activatePreset(old);
                         saveSettingsDebounced();
@@ -494,6 +569,7 @@ const importSinglePreset = async(file)=>{
         settings.presetList.push(preset);
         await importBooks(data);
         await importCharacterLocks(data);
+        await importGlobalDefault(data, preset.name);
         updateSelect();
         saveSettingsDebounced();
     } catch (ex) {
@@ -549,7 +625,9 @@ const init = ()=>{
             presetSelect.classList.add('stwil-preset');
             const blank = document.createElement('option'); {
                 blank.value = '';
-                blank.textContent = '--- Pick a Preset ---';
+                blank.textContent = settings.globalDefaultPreset ? 
+                    `--- Default: ${settings.globalDefaultPreset} ---` : 
+                    '--- Pick a Preset ---';
                 presetSelect.append(blank);
             }
             for (const preset of settings.presetList.toSorted((a,b)=>a.name.toLowerCase().localeCompare(b.name.toLowerCase()))) {
@@ -610,6 +688,11 @@ const init = ()=>{
                         if (lockedPreset === oldName) {
                             settings.characterLocks[charName] = name;
                         }
+                    }
+                    
+                    // Update global default if it references this preset
+                    if (settings.globalDefaultPreset === oldName) {
+                        settings.globalDefaultPreset = name;
                     }
                     
                     settings.preset.name = name;
@@ -711,6 +794,11 @@ const init = ()=>{
                     if (Object.keys(relevantLocks).length > 0) {
                         data.characterLocks = relevantLocks;
                     }
+                    
+                    // Include global default setting if this preset is the global default
+                    if (settings.globalDefaultPreset === settings.presetName) {
+                        data.isGlobalDefault = true;
+                    }
 
                     if (includeBooks) {
                         let names = useCurrentSelection ? world_info.globalSelect : settings.preset?.worldList || [];
@@ -757,6 +845,11 @@ const init = ()=>{
                         const chatLock = getChatLock();
                         if (chatLock === presetName) {
                             setChatLock(null);
+                        }
+                        
+                        // Remove global default if it references this preset
+                        if (settings.globalDefaultPreset === presetName) {
+                            settings.globalDefaultPreset = '';
                         }
                         
                         settings.presetList.splice(settings.presetList.indexOf(settings.preset), 1);
@@ -843,6 +936,7 @@ const init = ()=>{
                         preset.worldList.splice(preset.worldList.indexOf(oldName), 1, newName);
                     }
                     saveSettingsDebounced();
+                    updateSelect(); // Update the UI to reflect changes
                 }
             } else {
                 // toastr.info(`World Info book renamed, but not included in any presets: "${oldName}" => "${newName}"`);
