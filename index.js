@@ -379,7 +379,13 @@ export const activatePreset = async(preset, skipLockCheck = false)=>{
                 });
                 
                 console.log('STWIL: Clean settings to apply:', cleanSettings);
-                await setWorldInfoSettings(cleanSettings, null);
+                
+                // Get current world_names for setWorldInfoSettings - it needs this for proper operation
+                const worldInfoData = {
+                    world_names: window.world_names || []
+                };
+                
+                await setWorldInfoSettings(cleanSettings, worldInfoData);
                 console.log('STWIL: World info settings applied successfully');
             } catch (error) {
                 console.log('STWIL: World info settings could not be applied (SillyTavern core issue), continuing without settings');
