@@ -325,10 +325,26 @@ export const activatePreset = async(preset, skipLockCheck = false)=>{
             await executeSlashCommands(`/world silent=true ${world}`);
         }
         
-        // Apply world info settings if available
+        // Apply world info settings if available, preserving charLore at all costs
         if (preset.worldInfoSettings && Object.keys(preset.worldInfoSettings).length > 0) {
             try {
+                // 1. Preserve the current charLore from the live settings
+                const preservedCharLore = getWorldInfoSettings()?.world_info?.charLore;
+
+                // 2. Apply the settings from the preset. This will overwrite everything else,
+                // including globalSelect, as intended.
                 await setWorldInfoSettings(preset.worldInfoSettings);
+
+                // 3. Force the preserved charLore back into the settings
+                if (preservedCharLore) {
+                    const newSettings = getWorldInfoSettings();
+                    if (!newSettings.world_info) {
+                        newSettings.world_info = {};
+                    }
+                    newSettings.world_info.charLore = preservedCharLore;
+                    // 4. Apply the updated settings one final time to restore charLore
+                    await setWorldInfoSettings(newSettings);
+                }
             } catch (error) {
                 console.log('STWIL: World info settings could not be applied:', error.message);
             }
@@ -599,11 +615,13 @@ const importSinglePreset = async(file)=>{
                 const overwrite = await callPopup(`<h3>Overwrite World Info Preset "${newName}"?</h3>`, 'confirm');
                 if (overwrite) {
                     old.worldList = data.worldList;
-                    // Import world info settings if present
+                    // Import world info settings, excluding charLore from the file
                     if (data.worldInfoSettings) {
-                        old.worldInfoSettings = { ...data.worldInfoSettings };
-                        // Ensure world_info is not included
-                        delete old.worldInfoSettings.world_info;
+                        const importedSettings = { ...data.worldInfoSettings };
+                        if (importedSettings.world_info?.charLore) {
+                            delete importedSettings.world_info.charLore;
+                        }
+                        old.worldInfoSettings = importedSettings;
                     }
                     await importBooks(data);
                     await importCharacterLocks(data);
@@ -622,11 +640,13 @@ const importSinglePreset = async(file)=>{
         const preset = new Preset();
         preset.name = data.name;
         preset.worldList = data.worldList;
-        // Import world info settings if present
+        // Import world info settings, excluding charLore from the file
         if (data.worldInfoSettings) {
-            preset.worldInfoSettings = { ...data.worldInfoSettings };
-            // Ensure world_info is not included
-            delete preset.worldInfoSettings.world_info;
+            const importedSettings = { ...data.worldInfoSettings };
+            if (importedSettings.world_info?.charLore) {
+                delete importedSettings.world_info.charLore;
+            }
+            preset.worldInfoSettings = importedSettings;
         }
         settings.presetList.push(preset);
         await importBooks(data);
@@ -647,11 +667,14 @@ const createPreset = async()=>{
     preset.name = name;
     preset.worldList = [...world_info.globalSelect];
     
-    // Capture current world info settings (excluding world_info itself)
+    // Capture current world info settings but exclude charLore
     try {
-        preset.worldInfoSettings = getWorldInfoSettings();
-        // Remove world_info from the captured settings
-        delete preset.worldInfoSettings.world_info;
+        const capturedSettings = getWorldInfoSettings();
+        // If charLore exists, delete it from the object we are about to save
+        if (capturedSettings.world_info?.charLore) {
+            delete capturedSettings.world_info.charLore;
+        }
+        preset.worldInfoSettings = capturedSettings;
     } catch (error) {
         console.log('STWIL: Could not capture world info settings:', error.message);
         preset.worldInfoSettings = {};
@@ -803,13 +826,16 @@ const init = ()=>{
                 btnUpdate.addEventListener('click', ()=>{
                     if (!settings.preset) return createPreset();
                     
-                    // Use the simple, proven approach
                     settings.preset.worldList = [...world_info.globalSelect];
                     
-                    // Update world info settings
+                    // Update world info settings, excluding charLore
                     try {
-                        settings.preset.worldInfoSettings = getWorldInfoSettings();
-                        delete settings.preset.worldInfoSettings.world_info;
+                        const capturedSettings = getWorldInfoSettings();
+                        // If charLore exists, delete it from the object we are about to save
+                        if (capturedSettings.world_info?.charLore) {
+                            delete capturedSettings.world_info.charLore;
+                        }
+                        settings.preset.worldInfoSettings = capturedSettings;
                     } catch (error) {
                         console.log('STWIL: Could not capture world info settings:', error.message);
                     }
