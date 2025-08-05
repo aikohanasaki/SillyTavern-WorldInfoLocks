@@ -315,39 +315,51 @@ export const activatePreset = async(preset, skipLockCheck = false)=>{
         }
     }
     
-    // Use the simple, proven approach from the working version
+    // Preserve charLore BEFORE doing anything else
+    let preservedCharLore = null;
+    try {
+        const currentSettings = getWorldInfoSettings();
+        preservedCharLore = currentSettings?.world_info?.charLore || null;
+        console.log('STWIL: Preserved charLore:', preservedCharLore ? 'Found and preserved' : 'None to preserve');
+    } catch (error) {
+        console.warn('STWIL: Could not preserve charLore:', error.message);
+    }
+    
+    // Clear world info
     await executeSlashCommands('/world silent=true {{newline}}');
     settings.presetName = preset?.name ?? '';
     updateSelect();
     
     if (preset) {
+        // Load preset worlds
         for (const world of preset.worldList) {
             await executeSlashCommands(`/world silent=true ${world}`);
         }
         
-        // Apply world info settings if available, preserving charLore at all costs
+        // Apply world info settings if available
         if (preset.worldInfoSettings && Object.keys(preset.worldInfoSettings).length > 0) {
             try {
-                // 1. Preserve the current charLore from the live settings
-                const preservedCharLore = getWorldInfoSettings()?.world_info?.charLore;
-
-                // 2. Apply the settings from the preset. This will overwrite everything else,
-                // including globalSelect, as intended.
+                // Apply the settings from the preset
                 await setWorldInfoSettings(preset.worldInfoSettings);
-
-                // 3. Force the preserved charLore back into the settings
-                if (preservedCharLore) {
-                    const newSettings = getWorldInfoSettings();
-                    if (!newSettings.world_info) {
-                        newSettings.world_info = {};
-                    }
-                    newSettings.world_info.charLore = preservedCharLore;
-                    // 4. Apply the updated settings one final time to restore charLore
-                    await setWorldInfoSettings(newSettings);
-                }
+                console.log('STWIL: Applied preset world info settings');
             } catch (error) {
                 console.log('STWIL: World info settings could not be applied:', error.message);
             }
+        }
+    }
+    
+    // Restore charLore AFTER all other operations
+    if (preservedCharLore) {
+        try {
+            const finalSettings = getWorldInfoSettings();
+            if (!finalSettings.world_info) {
+                finalSettings.world_info = {};
+            }
+            finalSettings.world_info.charLore = preservedCharLore;
+            await setWorldInfoSettings(finalSettings);
+            console.log('STWIL: Restored charLore successfully');
+        } catch (error) {
+            console.warn('STWIL: Failed to restore charLore:', error.message);
         }
     }
     
