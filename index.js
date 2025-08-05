@@ -454,7 +454,17 @@ const updateSelect = ()=>{
             else presetSelect.append(opt);
         }
     }
-    presetSelect.value = settings.presetName;
+    
+    // Ensure the dropdown value reflects the current preset
+    presetSelect.value = settings.presetName || '';
+    
+    // Force update if the value didn't take (sometimes happens with dynamic options)
+    if (presetSelect.value !== (settings.presetName || '')) {
+        // Try again after a brief delay to ensure DOM has fully updated
+        setTimeout(() => {
+            presetSelect.value = settings.presetName || '';
+        }, 10);
+    }
 };
 
 function updateLockButton() {
