@@ -35,7 +35,6 @@ export class Settings {
 export class Preset {
     static from(props) {
         const instance = Object.assign(new this(), props);
-        // Don't automatically initialize worldInfoSettings - let the activation logic handle missing settings
         return instance;
     }
     /**@type {String}*/ name;
@@ -59,7 +58,6 @@ let presetSelect;
 let lockButton;
 let settingsButton;
 
-// Character and context detection functions (copied from STChatModelTemp)
 function getCharacterNameForSettings() {
     // Check if we're in a group chat first
     const isGroupChat = !!selected_group;
@@ -80,12 +78,10 @@ function getCharacterNameForSettings() {
     // For single character chats, use existing logic
     // Primary: Use name2 variable from script.js
     let rawCharacterName = name2;
-    let source = 'name2';
 
     // Fallback: Use chat_metadata.character_name if name2 is not available
     if (!rawCharacterName || rawCharacterName === systemUserName || rawCharacterName === neutralCharacterName) {
         rawCharacterName = chat_metadata?.character_name;
-        source = 'chat_metadata';
 
         if (!rawCharacterName) {
             console.warn('STWIL: No character name available in name2 or chat_metadata');
@@ -99,9 +95,6 @@ function getCharacterNameForSettings() {
     if (characterName.normalize) {
         characterName = characterName.normalize('NFC');
     }
-
-    console.log(`STWIL: Raw character name from ${source}:`, rawCharacterName);
-    console.log('STWIL: Normalized character name:', characterName);
 
     return characterName;
 }
@@ -150,8 +143,6 @@ function getCurrentContext() {
         groupName
     };
     cacheTimestamp = Date.now();
-    
-    console.log('STWIL: Context updated:', cachedContext);
     
     return cachedContext;
 }
@@ -226,17 +217,11 @@ function hasAnyLocks() {
 }
 
 async function checkAndApplyLocks() {
-    // Add robustness for cases where character data isn't loaded yet
     let attempts = 0;
     const maxAttempts = 10;
     
-    console.log('STWIL: checkAndApplyLocks called');
-    console.log('STWIL: Current settings.presetName:', settings.presetName);
-    console.log('STWIL: Global default preset:', settings.globalDefaultPreset);
-    
     while (attempts < maxAttempts) {
         const lockedPreset = getLockForContext();
-        console.log('STWIL: Locked preset for context:', lockedPreset);
         
         if (lockedPreset) {
             const preset = settings.presetList.find(p => p.name === lockedPreset);
@@ -256,10 +241,8 @@ async function checkAndApplyLocks() {
         
         // If we reach here, either no lock or character data not ready
         const context = getCurrentContext();
-        console.log('STWIL: Current context:', context);
         
         if (!context.characterName && !context.chatId) {
-            console.log('STWIL: Character/chat data not ready, waiting... attempt', attempts + 1);
             // Wait a bit for data to load
             await new Promise(resolve => setTimeout(resolve, 100));
             attempts++;
@@ -267,31 +250,16 @@ async function checkAndApplyLocks() {
         }
         
         // Data is available but no locks - apply global default for unlocked characters
-        console.log('STWIL: No locks found for this character. Checking if global default should apply.');
-        console.log('STWIL: Current presetName:', settings.presetName, 'globalDefault:', settings.globalDefaultPreset);
-        
         if (settings.globalDefaultPreset) {
             const defaultPreset = settings.presetList.find(p => p.name === settings.globalDefaultPreset);
-            console.log('STWIL: Found default preset:', defaultPreset?.name);
             
             if (defaultPreset) {
-                console.log('STWIL: Applying global default preset for unlocked character:', settings.globalDefaultPreset);
-                console.log('STWIL: About to call activatePreset with:', defaultPreset);
-                try {
-                    await activatePreset(defaultPreset);
-                    console.log('STWIL: activatePreset completed successfully');
-                } catch (error) {
-                    console.log('STWIL: Error in activatePreset:', error);
-                }
+                await activatePreset(defaultPreset);
                 if (settings.showLockNotifications) {
                     toastr.info(`Applied global default preset "${settings.globalDefaultPreset}" for unlocked character`, 'World Info Presets');
                 }
                 return;
-            } else {
-                console.log('STWIL: Global default preset not found in preset list');
             }
-        } else {
-            console.log('STWIL: No global default configured');
         }
         
         break;
@@ -312,7 +280,6 @@ const activatePresetByName = async(name)=>{
 };
 
 export const activatePreset = async(preset, skipLockCheck = false)=>{
-    console.log('STWIL: activatePreset function called with preset:', preset?.name, 'skipLockCheck:', skipLockCheck);
     // Check if we're changing presets in a locked context
     if (!skipLockCheck && hasAnyLocks()) {
         const currentLock = getLockForContext();
@@ -330,101 +297,27 @@ export const activatePreset = async(preset, skipLockCheck = false)=>{
         }
     }
     
-    // First, handle world book switching using delta approach
-    const currentlyActive = new Set(world_info.globalSelect || []);
-    const targetBooks = new Set(preset?.worldList || []);
+    // Use the simple, proven approach from the working version
+    await executeSlashCommands('/world silent=true {{newline}}');
+    settings.presetName = preset?.name ?? '';
+    updateSelect();
     
-    console.log('STWIL: Current active books:', [...currentlyActive]);
-    console.log('STWIL: Target books for preset:', preset?.name, [...targetBooks]);
-    
-    // Find books to unload (currently active but not in target)
-    const booksToUnload = [...currentlyActive].filter(book => !targetBooks.has(book));
-    
-    // Find books to load (in target but not currently active)
-    const booksToLoad = [...targetBooks].filter(book => !currentlyActive.has(book));
-    
-    console.log('STWIL: Books to unload:', booksToUnload);
-    console.log('STWIL: Books to load:', booksToLoad);
-    
-    // Unload books that shouldn't be active
-    for (const book of booksToUnload) {
-        console.log('STWIL: Unloading book:', book);
-        await executeSlashCommands(`/world state=off silent=true ${book}`);
-    }
-    
-    // Load books that should be active
-    for (const book of booksToLoad) {
-        console.log('STWIL: Loading book:', book);
-        await executeSlashCommands(`/world silent=true ${book}`);
-    }
-    
-    // Then apply world info settings if the preset has them (after world books are set)
-    if (preset?.worldInfoSettings && Object.keys(preset.worldInfoSettings).length > 0) {
-        console.log('STWIL: Applying world info settings from preset:', preset.name, preset.worldInfoSettings);
+    if (preset) {
+        for (const world of preset.worldList) {
+            await executeSlashCommands(`/world silent=true ${world}`);
+        }
         
-        // Check if world info is properly initialized before attempting to apply settings
-        if (!window.world_info || window.world_info === null) {
-            console.warn('STWIL: world_info is not initialized, skipping world info settings application');
-        } else {
+        // Apply world info settings if available
+        if (preset.worldInfoSettings && Object.keys(preset.worldInfoSettings).length > 0) {
             try {
-                // Create a clean copy of settings and ensure no null values
-                const cleanSettings = { ...preset.worldInfoSettings };
-                
-                // Remove any null or undefined values that might cause issues
-                Object.keys(cleanSettings).forEach(key => {
-                    if (cleanSettings[key] === null || cleanSettings[key] === undefined) {
-                        console.log('STWIL: Removing null/undefined setting:', key);
-                        delete cleanSettings[key];
-                    }
-                });
-                
-                console.log('STWIL: Clean settings to apply:', cleanSettings);
-                
-                // Get current world_names for setWorldInfoSettings - it needs this for proper operation
-                const worldInfoData = {
-                    world_names: window.world_names || []
-                };
-                
-                await setWorldInfoSettings(cleanSettings, worldInfoData);
-                console.log('STWIL: World info settings applied successfully');
+                await setWorldInfoSettings(preset.worldInfoSettings);
             } catch (error) {
-                console.log('STWIL: World info settings could not be applied (SillyTavern core issue), continuing without settings');
-                console.log('STWIL: This is normal and does not affect preset functionality');
-                
-                // Don't attempt individual application since they're all failing with the same error
-                // This suggests a systematic issue with setWorldInfoSettings itself
+                console.log('STWIL: World info settings could not be applied:', error.message);
             }
         }
-    } else if (preset) {
-        console.log('STWIL: No world info settings found in preset:', preset.name);
-        // Prompt user to save current settings into the preset
-        const shouldSaveSettings = await callPopup(
-            `<h3>Save World Info Settings to Preset?</h3>
-            <p>The preset "${preset.name}" doesn't have World Info settings saved.</p>
-            <p>Would you like to save the current World Info settings to this preset?</p>
-            <p><small>This will capture settings like depth, budget, case sensitivity, etc.</small></p>`,
-            'confirm'
-        );
-        
-        if (shouldSaveSettings) {
-            console.log('STWIL: Saving current world info settings to preset:', preset.name);
-            const currentSettings = getWorldInfoSettings();
-            // Remove world_info from the captured settings as requested
-            delete currentSettings.world_info;
-            preset.worldInfoSettings = currentSettings;
-            saveSettingsDebounced();
-            console.log('STWIL: Current world info settings saved to preset');
-        }
     }
     
-    // Update internal state
-    settings.presetName = preset?.name ?? '';
-    console.log('STWIL: Setting presetName to:', settings.presetName);
-    updateSelect();
     updateLockButton();
-    
-    // Verify final state
-    console.log('STWIL: Final active books after preset activation:', world_info.globalSelect);
 };
 
 async function updateLocksForContext(presetName) {
@@ -450,7 +343,8 @@ const updateSelect = ()=>{
             '--- Pick a Preset ---';
     }
     
-    // Get all option elements (excluding the blank option)
+    /**@type {HTMLOptionElement[]}*/
+    // @ts-ignore
     const opts = Array.from(presetSelect.children);
 
     const added = [];
@@ -494,45 +388,7 @@ const updateSelect = ()=>{
             else presetSelect.append(opt);
         }
     }
-    
-    // Ensure the dropdown value reflects the current preset
-    const targetValue = settings.presetName || '';
-    console.log('STWIL: updateSelect trying to set dropdown to:', targetValue);
-    console.log('STWIL: Available options:', Array.from(presetSelect.options).map(opt => opt.value));
-    
-    presetSelect.value = targetValue;
-    console.log('STWIL: Dropdown value after setting:', presetSelect.value);
-    
-    // Force update if the value didn't take (sometimes happens with dynamic options)
-    if (presetSelect.value !== targetValue) {
-        console.log('STWIL: Dropdown value mismatch, trying backup methods...');
-        
-        // Try setting by selectedIndex as backup
-        const targetOption = Array.from(presetSelect.options).find(opt => opt.value === targetValue);
-        if (targetOption) {
-            presetSelect.selectedIndex = targetOption.index;
-            console.log('STWIL: Set by selectedIndex, dropdown value now:', presetSelect.value);
-        }
-        
-        // If still doesn't match, try again after a brief delay
-        if (presetSelect.value !== targetValue) {
-            setTimeout(() => {
-                presetSelect.value = targetValue;
-                console.log('STWIL: Dropdown value after retry:', presetSelect.value);
-                
-                // Final backup attempt with selectedIndex
-                if (presetSelect.value !== targetValue) {
-                    const retryOption = Array.from(presetSelect.options).find(opt => opt.value === targetValue);
-                    if (retryOption) {
-                        presetSelect.selectedIndex = retryOption.index;
-                        console.log('STWIL: Final attempt with selectedIndex, dropdown value now:', presetSelect.value);
-                    } else {
-                        console.warn('STWIL: Target option not found. Target:', targetValue, 'Available:', Array.from(presetSelect.options).map(opt => opt.value));
-                    }
-                }
-            }, 10);
-        }
-    }
+    presetSelect.value = settings.presetName;
 };
 
 function updateLockButton() {
@@ -655,6 +511,7 @@ async function showSettings() {
         settings.showLockNotifications = content.querySelector('#showLockNotifications')?.checked || false;
         
         saveSettingsDebounced();
+        updateSelect(); // Update the blank option text
         
         // If global default changed and we're in a context with no locks and no preset, apply the new default
         if (newGlobalDefault !== oldGlobalDefault && !settings.presetName && !hasAnyLocks()) {
@@ -791,13 +648,21 @@ const importSinglePreset = async(file)=>{
 const createPreset = async()=>{
     const name = await callPopup('<h3>Preset Name:</h3>', 'input', settings.presetName);
     if (!name) return;
+    
     const preset = new Preset();
     preset.name = name;
     preset.worldList = [...world_info.globalSelect];
+    
     // Capture current world info settings (excluding world_info itself)
-    preset.worldInfoSettings = getWorldInfoSettings();
-    // Remove world_info from the captured settings as requested
-    delete preset.worldInfoSettings.world_info;
+    try {
+        preset.worldInfoSettings = getWorldInfoSettings();
+        // Remove world_info from the captured settings
+        delete preset.worldInfoSettings.world_info;
+    } catch (error) {
+        console.log('STWIL: Could not capture world info settings:', error.message);
+        preset.worldInfoSettings = {};
+    }
+    
     settings.presetList.push(preset);
     settings.presetName = name;
     updateSelect();
@@ -947,10 +812,18 @@ const init = ()=>{
                 btnUpdate.title = 'Update current preset';
                 btnUpdate.addEventListener('click', ()=>{
                     if (!settings.preset) return createPreset();
+                    
+                    // Use the simple, proven approach
                     settings.preset.worldList = [...world_info.globalSelect];
-                    // Update world info settings (excluding world_info itself)
-                    settings.preset.worldInfoSettings = getWorldInfoSettings();
-                    delete settings.preset.worldInfoSettings.world_info;
+                    
+                    // Update world info settings
+                    try {
+                        settings.preset.worldInfoSettings = getWorldInfoSettings();
+                        delete settings.preset.worldInfoSettings.world_info;
+                    } catch (error) {
+                        console.log('STWIL: Could not capture world info settings:', error.message);
+                    }
+                    
                     saveSettingsDebounced();
                 });
                 actions.append(btnUpdate);
@@ -1180,8 +1053,6 @@ const init = ()=>{
                     saveSettingsDebounced();
                     updateSelect(); // Update the UI to reflect changes
                 }
-            } else {
-                // toastr.info(`World Info book renamed, but not included in any presets: "${oldName}" => "${newName}"`);
             }
         }
         bookNames = [...newNames];
