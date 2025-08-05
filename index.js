@@ -6,6 +6,24 @@ import { delay, navigation_option } from '../../../utils.js';
 import { createWorldInfoEntry, deleteWIOriginalDataValue, deleteWorldInfoEntry, importWorldInfo, loadWorldInfo, saveWorldInfo, world_info, getWorldInfoSettings, setWorldInfoSettings } from '../../../world-info.js';
 import { selected_group, groups } from '../../../group-chats.js';
 
+// Constants for magic strings
+const POPUP_TYPES = {
+    CONFIRM: 'confirm',
+    INPUT: 'input',
+};
+
+const CSS_CLASSES = {
+    TOGGLE_ENABLED: 'toggleEnabled',
+    RED_WARNING_BG: 'redWarningBG',
+    STWIL_CONTAINER: 'stwil-container',
+    STWIL_PRESET: 'stwil-preset',
+    STWIL_ACTIONS: 'stwil-actions',
+    STWIL_ACTION: 'stwil-action',
+    STWIL_IMPORT_FILE: 'stwil-importFile',
+    MENU_BUTTON: 'menu_button',
+    CHECKBOX_LABEL: 'checkbox_label'
+};
+
 // Context cache to avoid redundant character name lookups
 let cachedContext = null;
 let cacheTimestamp = 0;
@@ -288,7 +306,7 @@ export const activatePreset = async(preset, skipLockCheck = false)=>{
                 `<h3>Preset Lock Active</h3>
                 <p>This context is locked to preset "${currentLock}" but you're switching to "${preset?.name || 'None'}".</p>
                 <p>Do you want to update the lock to use the new preset?</p>`,
-                'confirm'
+                POPUP_TYPES.CONFIRM
             );
             
             if (shouldUpdate) {
@@ -343,51 +361,27 @@ const updateSelect = ()=>{
             '--- Pick a Preset ---';
     }
     
-    /**@type {HTMLOptionElement[]}*/
-    // @ts-ignore
-    const opts = Array.from(presetSelect.children);
-
-    const added = [];
-    const removed = [];
-    const updated = [];
-    for (const preset of settings.presetList) {
-        const opt = opts.find(opt=>opt.value.toLowerCase() == preset.name.toLowerCase());
-        if (opt) {
-            if (opt.value != preset.name) {
-                updated.push({ preset, opt });
-            }
-        } else {
-            added.push(preset);
-        }
-    }
-    for (const opt of opts) {
-        if (opt.value == '') continue;
-        if (settings.presetList.find(preset=>opt.value.toLowerCase() == preset.name.toLowerCase())) continue;
-        removed.push(opt);
-    }
-    for (const opt of removed) {
-        opt.remove();
-        opts.splice(opts.indexOf(opt), 1);
-    }
-    for (const update of updated) {
-        update.opt.value = update.preset.name;
-        update.opt.textContent = update.preset.name;
-    }
-    const sortedOpts = opts.toSorted((a,b)=>a.value.toLowerCase().localeCompare(b.value.toLowerCase()));
-    sortedOpts.forEach((opt, idx)=>{
-        if (presetSelect.children[idx] != opt) {
-            presetSelect.children[idx].insertAdjacentElement('beforebegin', opt);
-        }
-    });
-    for (const preset of added) {
-        const opt = document.createElement('option'); {
+    // Simplified approach: remove all options except the blank one, then recreate
+    const currentOptions = Array.from(presetSelect.options).slice(1);
+    currentOptions.forEach(opt => opt.remove());
+    
+    // Create sorted list of new options
+    const newSortedOptions = settings.presetList
+        .map(preset => {
+            const opt = document.createElement('option');
             opt.value = preset.name;
             opt.textContent = preset.name;
-            const before = Array.from(presetSelect.children).find(it=>it.value.toLowerCase().localeCompare(preset.name.toLowerCase()) == 1);
-            if (before) before.insertAdjacentElement('beforebegin', opt);
-            else presetSelect.append(opt);
-        }
-    }
+            const worldsText = preset.worldList.length > 0 ? preset.worldList.join(', ') : 'No worlds';
+            const settingsText = preset.worldInfoSettings && Object.keys(preset.worldInfoSettings).length > 0 ? 'Includes WI settings' : 'No WI settings';
+            opt.title = `${worldsText} | ${settingsText}`;
+            return opt;
+        })
+        .sort((a, b) => a.value.toLowerCase().localeCompare(b.value.toLowerCase()));
+    
+    // Add the new sorted options
+    newSortedOptions.forEach(opt => presetSelect.add(opt));
+    
+    // Re-set the selected value
     presetSelect.value = settings.presetName;
 };
 
@@ -395,10 +389,10 @@ function updateLockButton() {
     if (!lockButton) return; // Guard against race condition
     
     if (hasAnyLocks()) {
-        lockButton.classList.add('toggleEnabled');
+        lockButton.classList.add(CSS_CLASSES.TOGGLE_ENABLED);
         lockButton.style.color = 'var(--active)';
     } else {
-        lockButton.classList.remove('toggleEnabled');
+        lockButton.classList.remove(CSS_CLASSES.TOGGLE_ENABLED);
         lockButton.style.color = '';
     }
 }
@@ -429,7 +423,7 @@ async function showLockSettings() {
         ${context.isGroupChat ? '<p><small>Character locks are disabled in group chats.</small></p>' : ''}
     `;
     
-    const result = await callPopup(content, 'confirm');
+    const result = await callPopup(content, POPUP_TYPES.CONFIRM);
     
     if (result) {
         const chatLockChecked = content.querySelector('#chatLockCheckbox')?.checked || false;
@@ -498,7 +492,7 @@ async function showSettings() {
         </div>
     `;
     
-    const result = await callPopup(content, 'confirm');
+    const result = await callPopup(content, POPUP_TYPES.CONFIRM);
     
     if (result) {
         const newGlobalDefault = content.querySelector('#globalDefaultPreset')?.value || '';
@@ -542,7 +536,7 @@ const loadBook = async(name)=>{
 
 const importBooks = async(data)=>{
     if (data.books && Object.keys(data.books).length > 0) {
-        const doImport = await callPopup(`<h3>The preset contains World Info books. Import the books?<h3>`, 'confirm');
+        const doImport = await callPopup(`<h3>The preset contains World Info books. Import the books?<h3>`, POPUP_TYPES.CONFIRM);
         if (doImport) {
             for (const key of Object.keys(data.books)) {
                 const book = data.books[key];
@@ -646,7 +640,7 @@ const importSinglePreset = async(file)=>{
 };
 
 const createPreset = async()=>{
-    const name = await callPopup('<h3>Preset Name:</h3>', 'input', settings.presetName);
+    const name = await callPopup('<h3>Preset Name:</h3>', POPUP_TYPES.INPUT, settings.presetName);
     if (!name) return;
     
     const preset = new Preset();
@@ -671,26 +665,22 @@ const createPreset = async()=>{
 };
 
 // Event handlers
-function onCharacterChanged() {
-    console.log('STWIL: Character changed');
-    clearContextCache(); // Clear cache when character changes
+function onContextChanged(eventName) {
+    console.log(`STWIL: ${eventName} changed`);
+    clearContextCache();
     updateLockButton();
-    
-    // Always check for locks and global defaults, regardless of lock settings
     setTimeout(() => {
         checkAndApplyLocks();
     }, 100);
 }
 
+function onCharacterChanged() {
+    onContextChanged('Character');
+}
+
 function onChatChanged() {
     if (!settings.enableChatLocks) return;
-    
-    console.log('STWIL: Chat changed');
-    clearContextCache(); // Clear cache when chat changes
-    updateLockButton();
-    setTimeout(() => {
-        checkAndApplyLocks();
-    }, 100);
+    onContextChanged('Chat');
 }
 
 const init = ()=>{
@@ -702,9 +692,9 @@ const init = ()=>{
     }
     
     const dom = document.createElement('div'); {
-        dom.classList.add('stwil-container');
+        dom.classList.add(CSS_CLASSES.STWIL_CONTAINER);
         presetSelect = document.createElement('select'); {
-            presetSelect.classList.add('stwil-preset');
+            presetSelect.classList.add(CSS_CLASSES.STWIL_PRESET);
             const blank = document.createElement('option'); {
                 blank.value = '';
                 blank.textContent = settings.globalDefaultPreset ? 
@@ -748,12 +738,12 @@ const init = ()=>{
             dom.append(presetSelect);
         }
         const actions = document.createElement('div'); {
-            actions.classList.add('stwil-actions');
+            actions.classList.add(CSS_CLASSES.STWIL_ACTIONS);
             
             // Lock button
             lockButton = document.createElement('div'); {
-                lockButton.classList.add('stwil-action');
-                lockButton.classList.add('menu_button');
+                lockButton.classList.add(CSS_CLASSES.STWIL_ACTION);
+                lockButton.classList.add(CSS_CLASSES.MENU_BUTTON);
                 lockButton.classList.add('fa-solid', 'fa-lock');
                 lockButton.title = 'Preset locks';
                 lockButton.addEventListener('click', showLockSettings);
@@ -762,8 +752,8 @@ const init = ()=>{
             
             // Settings button
             settingsButton = document.createElement('div'); {
-                settingsButton.classList.add('stwil-action');
-                settingsButton.classList.add('menu_button');
+                settingsButton.classList.add(CSS_CLASSES.STWIL_ACTION);
+                settingsButton.classList.add(CSS_CLASSES.MENU_BUTTON);
                 settingsButton.classList.add('fa-solid', 'fa-gear');
                 settingsButton.title = 'Settings';
                 settingsButton.addEventListener('click', showSettings);
