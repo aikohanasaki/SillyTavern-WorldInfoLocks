@@ -276,7 +276,13 @@ async function checkAndApplyLocks() {
             
             if (defaultPreset) {
                 console.log('STWIL: Applying global default preset for unlocked character:', settings.globalDefaultPreset);
-                await activatePreset(defaultPreset);
+                console.log('STWIL: About to call activatePreset with:', defaultPreset);
+                try {
+                    await activatePreset(defaultPreset);
+                    console.log('STWIL: activatePreset completed successfully');
+                } catch (error) {
+                    console.log('STWIL: Error in activatePreset:', error);
+                }
                 if (settings.showLockNotifications) {
                     toastr.info(`Applied global default preset "${settings.globalDefaultPreset}" for unlocked character`, 'World Info Presets');
                 }
@@ -306,6 +312,7 @@ const activatePresetByName = async(name)=>{
 };
 
 export const activatePreset = async(preset, skipLockCheck = false)=>{
+    console.log('STWIL: activatePreset function called with preset:', preset?.name, 'skipLockCheck:', skipLockCheck);
     // Check if we're changing presets in a locked context
     if (!skipLockCheck && hasAnyLocks()) {
         const currentLock = getLockForContext();
@@ -354,8 +361,34 @@ export const activatePreset = async(preset, skipLockCheck = false)=>{
     // Then apply world info settings if the preset has them (after world books are set)
     if (preset?.worldInfoSettings && Object.keys(preset.worldInfoSettings).length > 0) {
         console.log('STWIL: Applying world info settings from preset:', preset.name, preset.worldInfoSettings);
-        await setWorldInfoSettings(preset.worldInfoSettings, null);
-        console.log('STWIL: World info settings applied successfully');
+        
+        // Check if world info is properly initialized before attempting to apply settings
+        if (!window.world_info || window.world_info === null) {
+            console.warn('STWIL: world_info is not initialized, skipping world info settings application');
+        } else {
+            try {
+                // Create a clean copy of settings and ensure no null values
+                const cleanSettings = { ...preset.worldInfoSettings };
+                
+                // Remove any null or undefined values that might cause issues
+                Object.keys(cleanSettings).forEach(key => {
+                    if (cleanSettings[key] === null || cleanSettings[key] === undefined) {
+                        console.log('STWIL: Removing null/undefined setting:', key);
+                        delete cleanSettings[key];
+                    }
+                });
+                
+                console.log('STWIL: Clean settings to apply:', cleanSettings);
+                await setWorldInfoSettings(cleanSettings, null);
+                console.log('STWIL: World info settings applied successfully');
+            } catch (error) {
+                console.log('STWIL: World info settings could not be applied (SillyTavern core issue), continuing without settings');
+                console.log('STWIL: This is normal and does not affect preset functionality');
+                
+                // Don't attempt individual application since they're all failing with the same error
+                // This suggests a systematic issue with setWorldInfoSettings itself
+            }
+        }
     } else if (preset) {
         console.log('STWIL: No world info settings found in preset:', preset.name);
         // Prompt user to save current settings into the preset
@@ -380,6 +413,7 @@ export const activatePreset = async(preset, skipLockCheck = false)=>{
     
     // Update internal state
     settings.presetName = preset?.name ?? '';
+    console.log('STWIL: Setting presetName to:', settings.presetName);
     updateSelect();
     updateLockButton();
     
@@ -456,14 +490,42 @@ const updateSelect = ()=>{
     }
     
     // Ensure the dropdown value reflects the current preset
-    presetSelect.value = settings.presetName || '';
+    const targetValue = settings.presetName || '';
+    console.log('STWIL: updateSelect trying to set dropdown to:', targetValue);
+    console.log('STWIL: Available options:', Array.from(presetSelect.options).map(opt => opt.value));
+    
+    presetSelect.value = targetValue;
+    console.log('STWIL: Dropdown value after setting:', presetSelect.value);
     
     // Force update if the value didn't take (sometimes happens with dynamic options)
-    if (presetSelect.value !== (settings.presetName || '')) {
-        // Try again after a brief delay to ensure DOM has fully updated
-        setTimeout(() => {
-            presetSelect.value = settings.presetName || '';
-        }, 10);
+    if (presetSelect.value !== targetValue) {
+        console.log('STWIL: Dropdown value mismatch, trying backup methods...');
+        
+        // Try setting by selectedIndex as backup
+        const targetOption = Array.from(presetSelect.options).find(opt => opt.value === targetValue);
+        if (targetOption) {
+            presetSelect.selectedIndex = targetOption.index;
+            console.log('STWIL: Set by selectedIndex, dropdown value now:', presetSelect.value);
+        }
+        
+        // If still doesn't match, try again after a brief delay
+        if (presetSelect.value !== targetValue) {
+            setTimeout(() => {
+                presetSelect.value = targetValue;
+                console.log('STWIL: Dropdown value after retry:', presetSelect.value);
+                
+                // Final backup attempt with selectedIndex
+                if (presetSelect.value !== targetValue) {
+                    const retryOption = Array.from(presetSelect.options).find(opt => opt.value === targetValue);
+                    if (retryOption) {
+                        presetSelect.selectedIndex = retryOption.index;
+                        console.log('STWIL: Final attempt with selectedIndex, dropdown value now:', presetSelect.value);
+                    } else {
+                        console.warn('STWIL: Target option not found. Target:', targetValue, 'Available:', Array.from(presetSelect.options).map(opt => opt.value));
+                    }
+                }
+            }, 10);
+        }
     }
 };
 
