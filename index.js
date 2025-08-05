@@ -3,7 +3,7 @@ import { extension_settings, saveMetadataDebounced } from '../../../extensions.j
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '../../../popup.js';
 import { executeSlashCommands, registerSlashCommand } from '../../../slash-commands.js';
 import { delay, navigation_option } from '../../../utils.js';
-import { createWorldInfoEntry, deleteWIOriginalDataValue, deleteWorldInfoEntry, importWorldInfo, loadWorldInfo, saveWorldInfo, world_info } from '../../../world-info.js';
+import { createWorldInfoEntry, deleteWIOriginalDataValue, deleteWorldInfoEntry, importWorldInfo, loadWorldInfo, saveWorldInfo, world_info, getWorldInfoSettings, setWorldInfoSettings } from '../../../world-info.js';
 import { selected_group, groups } from '../../../group-chats.js';
 
 // Context cache to avoid redundant character name lookups
@@ -35,15 +35,18 @@ export class Settings {
 export class Preset {
     static from(props) {
         const instance = Object.assign(new this(), props);
+        // Don't automatically initialize worldInfoSettings - let the activation logic handle missing settings
         return instance;
     }
     /**@type {String}*/ name;
     /**@type {String[]}*/ worldList = [];
+    /**@type {Object}*/ worldInfoSettings = {};
 
     toJSON() {
         return {
             name: this.name,
             worldList: this.worldList,
+            worldInfoSettings: this.worldInfoSettings || {},
         };
     }
 }
@@ -320,9 +323,12 @@ export const activatePreset = async(preset, skipLockCheck = false)=>{
         }
     }
     
-    // Use delta approach: only change what's needed instead of brute force
+    // First, handle world book switching using delta approach
     const currentlyActive = new Set(world_info.globalSelect || []);
     const targetBooks = new Set(preset?.worldList || []);
+    
+    console.log('STWIL: Current active books:', [...currentlyActive]);
+    console.log('STWIL: Target books for preset:', preset?.name, [...targetBooks]);
     
     // Find books to unload (currently active but not in target)
     const booksToUnload = [...currentlyActive].filter(book => !targetBooks.has(book));
@@ -330,20 +336,55 @@ export const activatePreset = async(preset, skipLockCheck = false)=>{
     // Find books to load (in target but not currently active)
     const booksToLoad = [...targetBooks].filter(book => !currentlyActive.has(book));
     
+    console.log('STWIL: Books to unload:', booksToUnload);
+    console.log('STWIL: Books to load:', booksToLoad);
+    
     // Unload books that shouldn't be active
     for (const book of booksToUnload) {
+        console.log('STWIL: Unloading book:', book);
         await executeSlashCommands(`/world state=off silent=true ${book}`);
     }
     
     // Load books that should be active
     for (const book of booksToLoad) {
+        console.log('STWIL: Loading book:', book);
         await executeSlashCommands(`/world silent=true ${book}`);
+    }
+    
+    // Then apply world info settings if the preset has them (after world books are set)
+    if (preset?.worldInfoSettings && Object.keys(preset.worldInfoSettings).length > 0) {
+        console.log('STWIL: Applying world info settings from preset:', preset.name, preset.worldInfoSettings);
+        await setWorldInfoSettings(preset.worldInfoSettings, null);
+        console.log('STWIL: World info settings applied successfully');
+    } else if (preset) {
+        console.log('STWIL: No world info settings found in preset:', preset.name);
+        // Prompt user to save current settings into the preset
+        const shouldSaveSettings = await callPopup(
+            `<h3>Save World Info Settings to Preset?</h3>
+            <p>The preset "${preset.name}" doesn't have World Info settings saved.</p>
+            <p>Would you like to save the current World Info settings to this preset?</p>
+            <p><small>This will capture settings like depth, budget, case sensitivity, etc.</small></p>`,
+            'confirm'
+        );
+        
+        if (shouldSaveSettings) {
+            console.log('STWIL: Saving current world info settings to preset:', preset.name);
+            const currentSettings = getWorldInfoSettings();
+            // Remove world_info from the captured settings as requested
+            delete currentSettings.world_info;
+            preset.worldInfoSettings = currentSettings;
+            saveSettingsDebounced();
+            console.log('STWIL: Current world info settings saved to preset');
+        }
     }
     
     // Update internal state
     settings.presetName = preset?.name ?? '';
     updateSelect();
     updateLockButton();
+    
+    // Verify final state
+    console.log('STWIL: Final active books after preset activation:', world_info.globalSelect);
 };
 
 async function updateLocksForContext(presetName) {
@@ -629,6 +670,12 @@ const importSinglePreset = async(file)=>{
                 const overwrite = await callPopup(`<h3>Overwrite World Info Preset "${newName}"?</h3>`, 'confirm');
                 if (overwrite) {
                     old.worldList = data.worldList;
+                    // Import world info settings if present
+                    if (data.worldInfoSettings) {
+                        old.worldInfoSettings = { ...data.worldInfoSettings };
+                        // Ensure world_info is not included
+                        delete old.worldInfoSettings.world_info;
+                    }
                     await importBooks(data);
                     await importCharacterLocks(data);
                     await importGlobalDefault(data, newName);
@@ -646,6 +693,12 @@ const importSinglePreset = async(file)=>{
         const preset = new Preset();
         preset.name = data.name;
         preset.worldList = data.worldList;
+        // Import world info settings if present
+        if (data.worldInfoSettings) {
+            preset.worldInfoSettings = { ...data.worldInfoSettings };
+            // Ensure world_info is not included
+            delete preset.worldInfoSettings.world_info;
+        }
         settings.presetList.push(preset);
         await importBooks(data);
         await importCharacterLocks(data);
@@ -663,6 +716,10 @@ const createPreset = async()=>{
     const preset = new Preset();
     preset.name = name;
     preset.worldList = [...world_info.globalSelect];
+    // Capture current world info settings (excluding world_info itself)
+    preset.worldInfoSettings = getWorldInfoSettings();
+    // Remove world_info from the captured settings as requested
+    delete preset.worldInfoSettings.world_info;
     settings.presetList.push(preset);
     settings.presetName = name;
     updateSelect();
@@ -716,7 +773,9 @@ const init = ()=>{
                 const opt = document.createElement('option'); {
                     opt.value = preset.name;
                     opt.textContent = preset.name;
-                    opt.title = preset.worldList.join(', ');
+                    const worldsText = preset.worldList.length > 0 ? preset.worldList.join(', ') : 'No worlds';
+                    const settingsText = preset.worldInfoSettings && Object.keys(preset.worldInfoSettings).length > 0 ? 'Includes WI settings' : 'No WI settings';
+                    opt.title = `${worldsText} | ${settingsText}`;
                     presetSelect.append(opt);
                 }
             }
@@ -811,6 +870,9 @@ const init = ()=>{
                 btnUpdate.addEventListener('click', ()=>{
                     if (!settings.preset) return createPreset();
                     settings.preset.worldList = [...world_info.globalSelect];
+                    // Update world info settings (excluding world_info itself)
+                    settings.preset.worldInfoSettings = getWorldInfoSettings();
+                    delete settings.preset.worldInfoSettings.world_info;
                     saveSettingsDebounced();
                 });
                 actions.append(btnUpdate);
