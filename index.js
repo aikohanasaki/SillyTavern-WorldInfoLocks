@@ -29,6 +29,110 @@ let cachedContext = null;
 let cacheTimestamp = 0;
 const CACHE_DURATION_MS = 100; // Cache valid for 100ms
 
+// ----------------- charLore store helpers -----------------
+/**
+ * Persisted charLore store key on extension_settings:
+ * extension_settings.worldInfoCharLore
+ *
+ * Behavior:
+ * - initCharLoreStore() should be called during init().
+ * - storeCharLoreIfExists() will capture any existing charLore from the system and persist it.
+ * - getStoredCharLore()/setStoredCharLore() are used by safeSetWorldInfoSettings and other code paths.
+ */
+
+function getStoredCharLore() {
+    try {
+        return extension_settings?.worldInfoCharLore ?? null;
+    } catch (e) {
+        console.warn('STWIL: getStoredCharLore failed:', e?.message ?? e);
+        return null;
+    }
+}
+
+function setStoredCharLore(value) {
+    try {
+        if (!extension_settings) return;
+        if (value === undefined || value === null) {
+            extension_settings.worldInfoCharLore = null;
+        } else {
+            extension_settings.worldInfoCharLore = value;
+        }
+        try { saveSettingsDebounced(); } catch (e) { /* ignore if not available */ }
+    } catch (e) {
+        console.warn('STWIL: setStoredCharLore failed:', e?.message ?? e);
+    }
+}
+
+/**
+ * Read charLore from current system world info and store it if present.
+ * Use this at startup and optionally after user edits.
+ */
+function storeCharLoreIfExists() {
+    try {
+        const cur = getWorldInfoSettings() || {};
+        if (cur.world_info && Object.prototype.hasOwnProperty.call(cur.world_info, 'charLore')) {
+            setStoredCharLore(cur.world_info.charLore);
+            console.log('STWIL: storeCharLoreIfExists: stored charLore from system');
+        } else {
+            console.log('STWIL: storeCharLoreIfExists: no charLore found in system');
+        }
+    } catch (e) {
+        console.warn('STWIL: storeCharLoreIfExists failed:', e?.message ?? e);
+    }
+}
+
+/**
+ * Safely apply world info settings while preserving any existing charLore.
+ * - If the current world_info object contains a charLore key, that exact value will be retained.
+ * - Otherwise, if an extension store has a charLore, it will be restored unless toApply explicitly defines its own charLore.
+ */
+async function safeSetWorldInfoSettings(toApply) {
+    try {
+        // Get current system world info
+        const current = getWorldInfoSettings() || {};
+        const currentHasCharLore = !!(current.world_info && Object.prototype.hasOwnProperty.call(current.world_info, 'charLore'));
+        const currentCharLore = currentHasCharLore ? current.world_info.charLore : undefined;
+
+        // Clone toApply to safely modify
+        const toSet = JSON.parse(JSON.stringify(toApply || {}));
+        toSet.world_info = toSet.world_info || {};
+
+        // 1) If the system currently has charLore, preserve it (do not allow toApply to overwrite it)
+        if (currentHasCharLore) {
+            toSet.world_info.charLore = currentCharLore;
+        } else {
+            // 2) If system had no charLore but stored charLore exists, restore it (unless toSet explicitly has its own)
+            const stored = getStoredCharLore();
+            if (stored !== null && !Object.prototype.hasOwnProperty.call(toSet.world_info, 'charLore')) {
+                toSet.world_info.charLore = stored;
+                console.log('STWIL: safeSetWorldInfoSettings restored charLore from store');
+            }
+            // else: leave toSet.world_info.charLore alone (allow presets to set charLore if they explicitly include it)
+        }
+
+        // Apply settings
+        await setWorldInfoSettings(toSet);
+
+        // After applying, check what actually ended up in system and update the store if user changed charLore
+        try {
+            const final = getWorldInfoSettings() || {};
+            if (final.world_info && Object.prototype.hasOwnProperty.call(final.world_info, 'charLore')) {
+                setStoredCharLore(final.world_info.charLore);
+            }
+        } catch (innerErr) {
+            console.warn('STWIL: safeSetWorldInfoSettings post-check failed:', innerErr?.message ?? innerErr);
+        }
+    } catch (err) {
+        console.warn('STWIL: safeSetWorldInfoSettings failed:', err?.message ?? err);
+        // Fallback: try direct set to avoid losing functionality if helper errors
+        try {
+            await setWorldInfoSettings(toApply);
+        } catch (ex) {
+            console.error('STWIL: fallback setWorldInfoSettings also failed:', ex?.message ?? ex);
+        }
+    }
+}
+
 export class Settings {
     static from(props) {
         props.presetList = props.presetList?.map(it=>Preset.from(it)) ?? [];
@@ -294,8 +398,8 @@ export const activatePreset = async(preset, skipLockCheck = false)=>{
         }
     }
     
-    // === PRESERVE charLore (and note whether it existed) BEFORE doing anything ===
-    let preservedCharLore = null;
+    // Preserve charLore existence and value BEFORE doing anything else
+    let preservedCharLore = undefined;
     let preservedCharLoreExists = false;
     try {
         const currentSettings = getWorldInfoSettings() || {};
@@ -329,16 +433,15 @@ export const activatePreset = async(preset, skipLockCheck = false)=>{
                 toApply.world_info = toApply.world_info || {};
                 
                 // If the extension previously had a charLore, preserve it rather than letting the preset overwrite it.
-                // This guarantees the extension never destroys an existing charLore.
                 if (preservedCharLoreExists) {
-                    // Remove any charLore from the preset so we don't overwrite
                     if (Object.prototype.hasOwnProperty.call(toApply.world_info, 'charLore')) {
+                        // remove charLore from the preset to avoid overwriting
                         delete toApply.world_info.charLore;
                     }
                 }
                 
-                // Apply the (charLore-safe) settings
-                await setWorldInfoSettings(toApply);
+                // Apply settings using the safe helper (this will restore any preserved charLore)
+                await safeSetWorldInfoSettings(toApply);
                 console.log('STWIL: Applied preset world info settings (charLore preserved if present)');
             } catch (error) {
                 console.log('STWIL: World info settings could not be applied:', error.message);
@@ -346,29 +449,25 @@ export const activatePreset = async(preset, skipLockCheck = false)=>{
         }
     }
     
-    // === ALWAYS attempt to restore preserved charLore if it existed before we started ===
+    // ALWAYS ensure that if a charLore existed before we started, it still exists (restore if needed)
     if (preservedCharLoreExists) {
         try {
             const finalSettings = getWorldInfoSettings() || {};
-            if (!finalSettings.world_info) {
-                finalSettings.world_info = {};
-            }
-            // Restore the preserved charLore regardless of what else happened
+            if (!finalSettings.world_info) finalSettings.world_info = {};
             finalSettings.world_info.charLore = preservedCharLore;
-            await setWorldInfoSettings(finalSettings);
+            // Use safeSetWorldInfoSettings to avoid accidental overwrites elsewhere
+            await safeSetWorldInfoSettings(finalSettings);
             console.log('STWIL: Restored charLore successfully (guaranteed preserve)');
         } catch (error) {
             console.warn('STWIL: Failed to restore charLore:', error.message);
         }
     } else {
-        // No preservedCharLore existed at the start; nothing to restore.
-        // We intentionally do not delete any charLore that might have been added by user during the operation.
+        // If there was no pre-existing charLore, do not remove anything created by the user
         console.log('STWIL: No pre-existing charLore to restore; leaving world info as-is.');
     }
     
     updateLockButton();
 };
-
 
 async function updateLocksForContext(presetName) {
     const context = getCurrentContext();
@@ -1018,6 +1117,13 @@ const init = ()=>{
 
     // Initialize lock button state
     updateLockButton();
+
+    // Seed charLore store from whatever is currently in world info
+    try {
+        storeCharLoreIfExists();
+    } catch(e) {
+        console.warn('STWIL: charLore store init failed:', e?.message ?? e);
+    }
 
     // Event listeners
     if (eventSource && event_types) {
