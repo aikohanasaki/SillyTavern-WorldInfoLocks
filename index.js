@@ -77,7 +77,6 @@ let lockButton;
 let settingsButton;
 
 function getCharacterNameForSettings() {
-    // Check if we're in a group chat first
     const isGroupChat = !!selected_group;
     
     if (isGroupChat) {
@@ -93,8 +92,7 @@ function getCharacterNameForSettings() {
         }
     }
     
-    // For single character chats, use existing logic
-    // Primary: Use name2 variable from script.js
+    // Use name2 variable from script.js
     let rawCharacterName = name2;
 
     // Fallback: Use chat_metadata.character_name if name2 is not available
@@ -206,25 +204,6 @@ function getLockForContext() {
     } else {
         return characterLock || chatLock;
     }
-}
-
-function getEffectivePreset() {
-    // Priority: specific lock > current selection > global default
-    const lock = getLockForContext();
-    if (lock) {
-        return settings.presetList.find(p => p.name === lock);
-    }
-    
-    if (settings.presetName) {
-        return settings.preset;
-    }
-    
-    // Fall back to global default if no preset is selected and no locks
-    if (settings.globalDefaultPreset) {
-        return settings.presetList.find(p => p.name === settings.globalDefaultPreset);
-    }
-    
-    return null;
 }
 
 function hasAnyLocks() {
