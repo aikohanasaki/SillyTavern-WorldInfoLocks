@@ -2,15 +2,11 @@ import { callPopup, eventSource, event_types, getRequestHeaders, saveSettingsDeb
 import { extension_settings, saveMetadataDebounced } from '../../../extensions.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '../../../popup.js';
 import { executeSlashCommands, registerSlashCommand } from '../../../slash-commands.js';
-import { delay, navigation_option } from '../../../utils.js';
-import { createWorldInfoEntry, deleteWIOriginalDataValue, deleteWorldInfoEntry, importWorldInfo, loadWorldInfo, world_info, getWorldInfoSettings, setWorldInfoSettings } from '../../../world-info.js';
+import { importWorldInfo, world_info, getWorldInfoSettings, setWorldInfoSettings } from '../../../world-info.js';
 import { selected_group, groups } from '../../../group-chats.js';
 
-// Constants for magic strings
-const POPUP_TYPES = {
-    CONFIRM: 'confirm',
-    INPUT: 'input',
-};
+// Use imported POPUP_TYPE instead of defining local constants
+// Remove redundant local POPUP_TYPES constant
 
 const CSS_CLASSES = {
     TOGGLE_ENABLED: 'toggleEnabled',
@@ -28,6 +24,14 @@ const CSS_CLASSES = {
 let cachedContext = null;
 let cacheTimestamp = 0;
 const CACHE_DURATION_MS = 100; // Cache valid for 100ms
+
+// Helper function for deep cloning
+function deepClone(obj) {
+    if (typeof structuredClone === 'function') {
+        return structuredClone(obj);
+    }
+    return JSON.parse(JSON.stringify(obj));
+}
 
 // ----------------- World Info Settings Patching Helper -----------------
 /**
@@ -248,7 +252,16 @@ async function checkAndApplyLocks() {
                 await activatePreset(preset);
                 if (settings.showLockNotifications) {
                     const context = getCurrentContext();
-                    const lockType = getChatLock() ? 'chat' : 'character';
+                    const chatLock = settings.enableChatLocks ? getChatLock() : null;
+                    const characterLock = settings.enableCharacterLocks ? getCharacterLock(context.characterName) : null;
+                    
+                    let lockType;
+                    if (settings.preferChatOverCharacterLocks) {
+                        lockType = lockedPreset === chatLock ? 'chat' : 'character';
+                    } else {
+                        lockType = lockedPreset === characterLock ? 'character' : 'chat';
+                    }
+                    
                     toastr.info(`Applied locked preset "${lockedPreset}" for ${lockType}`, 'World Info Presets');
                 }
                 return; // Success
@@ -268,14 +281,14 @@ async function checkAndApplyLocks() {
             continue;
         }
         
-        // Data is available but no locks - apply global default for unlocked characters
+        // Data is available but no locks - apply global default for unlocked contexts
         if (settings.globalDefaultPreset) {
             const defaultPreset = settings.presetList.find(p => p.name === settings.globalDefaultPreset);
             
             if (defaultPreset) {
                 await activatePreset(defaultPreset);
                 if (settings.showLockNotifications) {
-                    toastr.info(`Applied global default preset "${settings.globalDefaultPreset}" for unlocked character`, 'World Info Presets');
+                    toastr.info(`Applied global default preset "${settings.globalDefaultPreset}" for this context`, 'World Info Presets');
                 }
                 return;
             }
@@ -290,6 +303,10 @@ async function checkAndApplyLocks() {
 }
 
 const activatePresetByName = async(name)=>{
+    if (!name || !name.trim()) {
+        await activatePreset(null);
+        return;
+    }
     const preset = settings.presetList.find(it=>it.name.toLowerCase() == name.toLowerCase());
     if (!preset) {
         toastr.warning(`Preset "${name}" not found`);
@@ -307,7 +324,7 @@ export const activatePreset = async(preset, skipLockCheck = false)=>{
                 `<h3>Preset Lock Active</h3>
                 <p>This context is locked to preset "${currentLock}" but you're switching to "${preset?.name || 'None'}".</p>
                 <p>Do you want to update the lock to use the new preset?</p>`,
-                POPUP_TYPES.CONFIRM
+                POPUP_TYPE.CONFIRM
             );
             
             if (shouldUpdate) {
@@ -316,8 +333,8 @@ export const activatePreset = async(preset, skipLockCheck = false)=>{
         }
     }
     
-    // Clear world info first
-    await executeSlashCommands('/world silent=true {{newline}}');
+    // Clear world info first - using a more standard clear command
+    await executeSlashCommands('/world clear');
     settings.presetName = preset?.name ?? '';
     updateSelect();
     
@@ -405,9 +422,13 @@ async function showLockSettings() {
     const chatLock = getChatLock();
     const characterLock = getCharacterLock(context.characterName);
     
+    // Disable checkboxes when no preset is selected
+    const disableCheckboxes = !settings.presetName;
+    const disabledAttr = disableCheckboxes ? 'disabled' : '';
+    
     const characterLockHtml = context.isGroupChat ? '' : `
-        <label class="checkbox_label">
-            <input type="checkbox" id="characterLockCheckbox" ${characterLock ? 'checked' : ''}>
+        <label class="${CSS_CLASSES.CHECKBOX_LABEL}">
+            <input type="checkbox" id="characterLockCheckbox" ${characterLock ? 'checked' : ''} ${disabledAttr}>
             <span>Lock to character${context.characterName ? ` (${context.characterName})` : ''}</span>
         </label>
     `;
@@ -415,18 +436,23 @@ async function showLockSettings() {
     const content = document.createElement('div');
     content.innerHTML = `
         <h3>Preset Locks</h3>
-        <p>Lock the current preset "${settings.presetName || 'None'}" to this context:</p>
+        ${disableCheckboxes ? '<p><strong>Note:</strong> You must select a preset first before you can create locks.</p>' : 
+        `<p>Lock the current preset "${settings.presetName}" to this context:</p>`}
         <div>
             ${characterLockHtml}
-            <label class="checkbox_label">
-                <input type="checkbox" id="chatLockCheckbox" ${chatLock ? 'checked' : ''}>
+            <label class="${CSS_CLASSES.CHECKBOX_LABEL}">
+                <input type="checkbox" id="chatLockCheckbox" ${chatLock ? 'checked' : ''} ${disabledAttr}>
                 <span>Lock to chat</span>
             </label>
         </div>
         ${context.isGroupChat ? '<p><small>Character locks are disabled in group chats.</small></p>' : ''}
     `;
     
-    const result = await callPopup(content, POPUP_TYPES.CONFIRM);
+    if (disableCheckboxes) {
+        return; // Exit early if no preset is selected
+    }
+    
+    const result = await callPopup(content, POPUP_TYPE.CONFIRM);
     
     if (result) {
         const chatLockChecked = content.querySelector('#chatLockCheckbox')?.checked || false;
@@ -476,26 +502,26 @@ async function showSettings() {
                 <small style="color: #888;">This preset will be applied when no specific preset is selected and no locks are active.</small>
             </div>
             <hr style="margin: 15px 0;">
-            <label class="checkbox_label">
+            <label class="${CSS_CLASSES.CHECKBOX_LABEL}">
                 <input type="checkbox" id="enableCharacterLocks" ${settings.enableCharacterLocks ? 'checked' : ''}>
                 <span>Enable character locks</span>
             </label>
-            <label class="checkbox_label">
+            <label class="${CSS_CLASSES.CHECKBOX_LABEL}">
                 <input type="checkbox" id="enableChatLocks" ${settings.enableChatLocks ? 'checked' : ''}>
                 <span>Enable chat locks</span>
             </label>
-            <label class="checkbox_label">
+            <label class="${CSS_CLASSES.CHECKBOX_LABEL}">
                 <input type="checkbox" id="preferChatOverCharacterLocks" ${settings.preferChatOverCharacterLocks ? 'checked' : ''}>
                 <span>Prefer chat locks over character locks</span>
             </label>
-            <label class="checkbox_label">
+            <label class="${CSS_CLASSES.CHECKBOX_LABEL}">
                 <input type="checkbox" id="showLockNotifications" ${settings.showLockNotifications ? 'checked' : ''}>
                 <span>Show lock notifications</span>
             </label>
         </div>
     `;
     
-    const result = await callPopup(content, POPUP_TYPES.CONFIRM);
+    const result = await callPopup(content, POPUP_TYPE.CONFIRM);
     
     if (result) {
         const newGlobalDefault = content.querySelector('#globalDefaultPreset')?.value || '';
@@ -539,7 +565,7 @@ const loadBook = async(name)=>{
 
 const importBooks = async(data)=>{
     if (data.books && Object.keys(data.books).length > 0) {
-        const doImport = await callPopup(`<h3>The preset contains World Info books. Import the books?<h3>`, POPUP_TYPES.CONFIRM);
+        const doImport = await callPopup(`<h3>The preset contains World Info books. Import the books?</h3>`, POPUP_TYPE.CONFIRM);
         if (doImport) {
             for (const key of Object.keys(data.books)) {
                 const book = data.books[key];
@@ -553,7 +579,7 @@ const importBooks = async(data)=>{
 
 const importCharacterLocks = async(data)=>{
     if (data.characterLocks && Object.keys(data.characterLocks).length > 0) {
-        const doImport = await callPopup(`<h3>The preset contains character locks. Import the character locks?<h3>`, 'confirm');
+        const doImport = await callPopup(`<h3>The preset contains character locks. Import the character locks?</h3>`, POPUP_TYPE.CONFIRM);
         if (doImport) {
             Object.assign(settings.characterLocks, data.characterLocks);
             saveSettingsDebounced();
@@ -563,7 +589,7 @@ const importCharacterLocks = async(data)=>{
 
 const importGlobalDefault = async(data, presetName)=>{
     if (data.isGlobalDefault) {
-        const doImport = await callPopup(`<h3>This preset was exported as a global default. Set "${presetName}" as your global default?<h3>`, 'confirm');
+        const doImport = await callPopup(`<h3>This preset was exported as a global default. Set "${presetName}" as your global default?</h3>`, POPUP_TYPE.CONFIRM);
         if (doImport) {
             settings.globalDefaultPreset = presetName;
             updateSelect();
@@ -591,20 +617,20 @@ const importSinglePreset = async(file)=>{
         let old = settings.presetList.find(it=>it.name.toLowerCase() == data.name.toLowerCase());
         while (old) {
             const popupText = `
-                <h3>Import World Info Preset: "${data.name}"</3>
+                <h3>Import World Info Preset: "${data.name}"</h3>
                 <h4>
                     A preset by that name already exists. Change the name to import under a new name,
-                    or keep the name to ovewrite the existing preset.
+                    or keep the name to overwrite the existing preset.
                 </h4>
             `;
-            const newName = await callPopup(popupText, 'input', data.name);
+            const newName = await callPopup(popupText, POPUP_TYPE.INPUT, data.name);
             if (newName == data.name) {
-                const overwrite = await callPopup(`<h3>Overwrite World Info Preset "${newName}"?</h3>`, 'confirm');
+                const overwrite = await callPopup(`<h3>Overwrite World Info Preset "${newName}"?</h3>`, POPUP_TYPE.CONFIRM);
                 if (overwrite) {
-                    old.worldList = data.worldList;
+                    old.worldList = Array.isArray(data.worldList) ? data.worldList : [];
                     // Import world info settings, excluding charLore from the file
                     if (data.worldInfoSettings) {
-                        const importedSettings = { ...data.worldInfoSettings };
+                        const importedSettings = deepClone(data.worldInfoSettings);
                         if (importedSettings.world_info?.charLore) {
                             delete importedSettings.world_info.charLore;
                         }
@@ -626,10 +652,10 @@ const importSinglePreset = async(file)=>{
         }
         const preset = new Preset();
         preset.name = data.name;
-        preset.worldList = data.worldList;
+        preset.worldList = Array.isArray(data.worldList) ? data.worldList : [];
         // Import world info settings, excluding charLore from the file
         if (data.worldInfoSettings) {
-            const importedSettings = { ...data.worldInfoSettings };
+            const importedSettings = deepClone(data.worldInfoSettings);
             if (importedSettings.world_info?.charLore) {
                 delete importedSettings.world_info.charLore;
             }
@@ -647,20 +673,21 @@ const importSinglePreset = async(file)=>{
 };
 
 const createPreset = async()=>{
-    const name = await callPopup('<h3>Preset Name:</h3>', POPUP_TYPES.INPUT, settings.presetName);
+    const name = await callPopup('<h3>Preset Name:</h3>', POPUP_TYPE.INPUT, settings.presetName);
     if (!name) return;
     
     const preset = new Preset();
     preset.name = name;
     preset.worldList = [...world_info.globalSelect];
     
-    // Capture current world info settings but exclude charLore
+    // Capture current world info settings but exclude charLore - clone first to avoid mutation
     try {
-        const capturedSettings = getWorldInfoSettings();
-        if (capturedSettings?.world_info?.charLore) {
-            delete capturedSettings.world_info.charLore;
+        const current = getWorldInfoSettings() || {};
+        const presetSettings = deepClone(current);
+        if (presetSettings.world_info?.charLore) {
+            delete presetSettings.world_info.charLore;
         }
-        preset.worldInfoSettings = capturedSettings || {};
+        preset.worldInfoSettings = presetSettings;
     } catch (error) {
         console.log('STWIL: Could not capture world info settings:', error.message);
         preset.worldInfoSettings = {};
@@ -770,13 +797,13 @@ const init = ()=>{
             }
             
             const btnRename = document.createElement('div'); {
-                btnRename.classList.add('stwil-action');
-                btnRename.classList.add('menu_button');
+                btnRename.classList.add(CSS_CLASSES.STWIL_ACTION);
+                btnRename.classList.add(CSS_CLASSES.MENU_BUTTON);
                 btnRename.classList.add('fa-solid', 'fa-pencil');
                 btnRename.title = 'Rename current preset';
                 btnRename.addEventListener('click', async()=>{
                     const oldName = settings.presetName;
-                    const name = await callPopup('<h3>Rename Preset:</h3>', 'input', settings.presetName);
+                    const name = await callPopup('<h3>Rename Preset:</h3>', POPUP_TYPE.INPUT, settings.presetName);
                     if (!name || name === oldName) return;
                     
                     // Update chat lock if it matches
@@ -805,8 +832,8 @@ const init = ()=>{
                 actions.append(btnRename);
             }
             const btnUpdate = document.createElement('div'); {
-                btnUpdate.classList.add('stwil-action');
-                btnUpdate.classList.add('menu_button');
+                btnUpdate.classList.add(CSS_CLASSES.STWIL_ACTION);
+                btnUpdate.classList.add(CSS_CLASSES.MENU_BUTTON);
                 btnUpdate.classList.add('fa-solid', 'fa-save');
                 btnUpdate.title = 'Update current preset';
                 btnUpdate.addEventListener('click', ()=>{
@@ -814,13 +841,14 @@ const init = ()=>{
                     
                     settings.preset.worldList = [...world_info.globalSelect];
                     
-                    // Update world info settings, excluding charLore
+                    // Update world info settings, excluding charLore - clone first to avoid mutation
                     try {
-                        const capturedSettings = getWorldInfoSettings();
-                        if (capturedSettings?.world_info?.charLore) {
-                            delete capturedSettings.world_info.charLore;
+                        const current = getWorldInfoSettings() || {};
+                        const presetSettings = deepClone(current);
+                        if (presetSettings.world_info?.charLore) {
+                            delete presetSettings.world_info.charLore;
                         }
-                        settings.preset.worldInfoSettings = capturedSettings || {};
+                        settings.preset.worldInfoSettings = presetSettings;
                     } catch (error) {
                         console.log('STWIL: Could not capture world info settings:', error.message);
                     }
@@ -830,40 +858,42 @@ const init = ()=>{
                 actions.append(btnUpdate);
             }
             const btnCreate = document.createElement('div'); {
-                btnCreate.classList.add('stwil-action');
-                btnCreate.classList.add('menu_button');
+                btnCreate.classList.add(CSS_CLASSES.STWIL_ACTION);
+                btnCreate.classList.add(CSS_CLASSES.MENU_BUTTON);
                 btnCreate.classList.add('fa-solid', 'fa-file-circle-plus');
                 btnCreate.title = 'Save current preset as';
                 btnCreate.addEventListener('click', async()=>createPreset());
                 actions.append(btnCreate);
             }
             const btnRestore = document.createElement('div'); {
-                btnRestore.classList.add('stwil-action');
-                btnRestore.classList.add('menu_button');
+                btnRestore.classList.add(CSS_CLASSES.STWIL_ACTION);
+                btnRestore.classList.add(CSS_CLASSES.MENU_BUTTON);
                 btnRestore.classList.add('fa-solid', 'fa-rotate-left');
                 btnRestore.title = 'Restore current preset';
                 btnRestore.addEventListener('click', ()=>activatePreset(settings.preset, true));
                 actions.append(btnRestore);
             }
             const importFile = document.createElement('input'); {
-                importFile.classList.add('stwil-importFile');
+                importFile.classList.add(CSS_CLASSES.STWIL_IMPORT_FILE);
                 importFile.type = 'file';
+                importFile.style.display = 'none';
                 importFile.addEventListener('change', async()=>{
                     await importPreset(importFile.files);
                     importFile.value = null;
                 });
             }
             const btnImport = document.createElement('div'); {
-                btnImport.classList.add('stwil-action');
-                btnImport.classList.add('menu_button');
+                btnImport.classList.add(CSS_CLASSES.STWIL_ACTION);
+                btnImport.classList.add(CSS_CLASSES.MENU_BUTTON);
                 btnImport.classList.add('fa-solid', 'fa-file-import');
                 btnImport.title = 'Import preset';
                 btnImport.addEventListener('click', ()=>importFile.click());
                 actions.append(btnImport);
+                actions.append(importFile); // Attach to DOM for proper functioning
             }
             const btnExport = document.createElement('div'); {
-                btnExport.classList.add('stwil-action');
-                btnExport.classList.add('menu_button');
+                btnExport.classList.add(CSS_CLASSES.STWIL_ACTION);
+                btnExport.classList.add(CSS_CLASSES.MENU_BUTTON);
                 btnExport.classList.add('fa-solid', 'fa-file-export');
                 btnExport.title = 'Export the current preset';
                 btnExport.addEventListener('click', async () => {
@@ -877,11 +907,11 @@ const init = ()=>{
                     content.innerHTML = `
                         <h3>Export World Info Preset: "${settings.presetName}"</h3>
                         <div>
-                            <label class="checkbox_label">
+                            <label class="${CSS_CLASSES.CHECKBOX_LABEL}">
                                 <input type="checkbox" id="includeBooks" checked>
                                 <span>Include books' contents in export</span>
                             </label>
-                            <label class="checkbox_label">
+                            <label class="${CSS_CLASSES.CHECKBOX_LABEL}">
                                 <input type="checkbox" id="useCurrentSelection">
                                 <span>Use currently selected books instead of preset definition</span>
                             </label>
@@ -890,7 +920,7 @@ const init = ()=>{
                     `;
 
                     // Pass the element to the popup function
-                    const result = await callPopup(content, 'confirm');
+                    const result = await callPopup(content, POPUP_TYPE.CONFIRM);
                     if (!result) return;
 
                     // Read checkbox values from the content element (still exists in memory)
@@ -938,14 +968,14 @@ const init = ()=>{
                 actions.append(btnExport);
             }
             const btnDelete = document.createElement('div'); {
-                btnDelete.classList.add('stwil-action');
-                btnDelete.classList.add('menu_button');
-                btnDelete.classList.add('redWarningBG');
+                btnDelete.classList.add(CSS_CLASSES.STWIL_ACTION);
+                btnDelete.classList.add(CSS_CLASSES.MENU_BUTTON);
+                btnDelete.classList.add(CSS_CLASSES.RED_WARNING_BG);
                 btnDelete.classList.add('fa-solid', 'fa-trash-can');
                 btnDelete.title = 'Delete the current preset';
                 btnDelete.addEventListener('click', async()=>{
                     if (settings.presetName == '') return;
-                    const confirmed = await callPopup(`<h3>Delete World Info Preset "${settings.presetName}"?</h3>`, 'confirm');
+                    const confirmed = await callPopup(`<h3>Delete World Info Preset "${settings.presetName}"?</h3>`, POPUP_TYPE.CONFIRM);
                     if (confirmed) {
                         const presetName = settings.presetName;
                         
