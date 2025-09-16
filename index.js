@@ -565,7 +565,7 @@ async function updateLocksForContext(presetName) {
         setChatLock(presetName);
     }
     
-    if (!context.isGroupChat && getCharacterLock(context.characterName)) {
+    if (getCharacterLock(context.characterName)) {
         setCharacterLock(context.characterName, presetName);
     }
 }
@@ -647,10 +647,11 @@ async function showLockSettings() {
     const chatLock = getChatLock();
     const characterLock = getCharacterLock(context.characterName);
     
-    const characterLockHtml = context.isGroupChat ? '' : `
+    const lockTypeLabel = context.isGroupChat ? 'group' : 'character';
+    const characterLockHtml = `
         <label class="checkbox_label">
             <input type="checkbox" id="characterLockCheckbox" ${characterLock ? 'checked' : ''}>
-            <span>Lock to character${context.characterName ? ` (${context.characterName})` : ''}</span>
+            <span>Lock to ${lockTypeLabel}${context.characterName ? ` (${context.characterName})` : ''}</span>
         </label>
     `;
 
@@ -665,7 +666,6 @@ async function showLockSettings() {
                 <span>Lock to chat</span>
             </label>
         </div>
-        ${context.isGroupChat ? '<p><small>Character locks are disabled in group chats.</small></p>' : ''}
     `;
     
     const result = await callPopup(content, 'confirm');
@@ -677,8 +677,8 @@ async function showLockSettings() {
         // Update chat lock
         setChatLock(chatLockChecked ? settings.presetName : null);
         
-        // Update character lock (only if not in group chat)
-        if (!context.isGroupChat && context.characterName) {
+        // Update character/group lock
+        if (context.characterName) {
             setCharacterLock(context.characterName, characterLockChecked ? settings.presetName : null);
         }
         
@@ -687,7 +687,7 @@ async function showLockSettings() {
         if (settings.showLockNotifications) {
             const locks = [];
             if (chatLockChecked) locks.push('chat');
-            if (characterLockChecked && !context.isGroupChat) locks.push('character');
+            if (characterLockChecked) locks.push(context.isGroupChat ? 'group' : 'character');
             
             if (locks.length > 0) {
                 toastr.success(`Preset "${settings.presetName}" locked to ${locks.join(' and ')}`, 'World Info Presets');
@@ -709,15 +709,15 @@ async function showSettings() {
     content.innerHTML = `
         <h3>World Info Preset Settings</h3>
         <div>
-            <div style="margin-bottom: 10px;">
-                <label for="globalDefaultPreset" style="display: block; font-weight: bold; margin-bottom: 5px;">Global Default Preset:</label>
-                <select id="globalDefaultPreset" style="width: 100%;">
+            <div class="marginBot10">
+                <h4 class="marginBot5">Global Default Preset:</h4>
+                <select id="globalDefaultPreset">
                     <option value="">None</option>
                     ${presetOptions}
                 </select>
-                <small style="color: #888;">This preset will be applied when no specific preset is selected and no locks are active.</small>
+                <small style="color: var(--grey50);">This preset will be applied when no specific preset is selected and no locks are active.</small>
             </div>
-            <hr style="margin: 15px 0;">
+            <hr class="marginTopBot5">
             <label class="checkbox_label">
                 <input type="checkbox" id="enableCharacterLocks" ${settings.enableCharacterLocks ? 'checked' : ''}>
                 <span>Enable character locks</span>
@@ -1064,34 +1064,35 @@ async function showSettingsSelectionDialog() {
         <h3>World Info Settings Inclusion</h3>
         <p>Choose which global world info settings to include in this preset:</p>
 
-        <div style="margin-bottom: 15px;">
+        <div class="marginBot10">
             <label class="checkbox_label">
                 <input type="checkbox" id="includeSettingsToggle" checked>
                 <span><strong>Include world info settings in preset</strong></span>
             </label>
-            <small style="color: #888; display: block; margin-left: 20px;">
+            <small class="displayBlock indent20p" style="color: var(--grey50);">
                 When enabled, switching to this preset will also apply the selected global settings.
             </small>
         </div>
 
-        <div id="settingsCategories" style="margin-left: 20px;">
-            <div style="margin-bottom: 10px;">
-                <button type="button" id="selectAllBtn" style="margin-right: 10px;">Select All</button>
+        <div id="settingsCategories" class="indent20p">
+            <div class="marginBot10">
+                <button type="button" id="selectAllBtn" class="margin-right-10px">Select All</button>
                 <button type="button" id="selectNoneBtn">Select None</button>
             </div>
 
             ${Object.entries(categories).map(([catKey, category]) => `
-                <div style="margin-bottom: 15px; border: 1px solid #444; padding: 10px; border-radius: 4px;">
-                    <label class="checkbox_label" style="font-weight: bold;">
+                <div class="marginBot10" style="border: 1px solid var(--grey30); padding: 10px; border-radius: 5px;">
+                    <h5>${category.name}</h5>
+                    <label class="checkbox_label">
                         <input type="checkbox" class="categoryToggle" data-category="${catKey}" checked>
-                        <span>${category.name}</span>
+                        <span>Include this category</span>
                     </label>
-                    <p style="margin: 5px 0; color: #aaa; font-size: 0.9em;">${category.description}</p>
-                    <div style="margin-left: 20px;">
+                    <p class="marginTopBot5" style="color: var(--grey70); font-size: 0.9em;">${category.description}</p>
+                    <div class="indent20p">
                         ${category.settings.map(setting => `
                             <label class="checkbox_label">
                                 <input type="checkbox" class="settingCheckbox" data-category="${catKey}" data-setting="${setting}" checked>
-                                <span style="font-family: monospace;">${setting.replace('world_info_', '')}</span>
+                                <span style="font-family: var(--monoFontFamily);">${setting.replace('world_info_', '')}</span>
                             </label>
                         `).join('')}
                     </div>

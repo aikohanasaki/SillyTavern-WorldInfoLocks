@@ -1,11 +1,6 @@
 # World Info Locks (A SillyTavern Extension)
 
-![Status: Feature Complete](https://img.shields.io/badge/Status-Feature%20Complete-brightgreen)
-![Maintenance: Active](https://img.shields.io/badge/Maintenance-Active-blue)
-
 World Info Locks is a comprehensive preset management system for SillyTavern's World Info functionality. Originally forked from [World Info Presets](https://github.com/LenAnderson/SillyTavern-WorldInfoPresets/), it has evolved into a powerful tool for managing lorebook configurations across different contexts.
-
-> **📋 Project Status**: This extension is considered feature-complete and stable as of version 1.6.0. While major new features are not planned, bug reports and compatibility updates are welcome!
 
 ## 🌟 Key Features
 
