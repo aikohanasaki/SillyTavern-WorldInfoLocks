@@ -5,25 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.8.1] - 2025-01-16
-
-### Changed
-- Improved code maintainability by replacing inline CSS with SillyTavern utility classes
-- Enhanced semantic HTML structure with proper heading hierarchy
-- Replaced hardcoded colors with CSS variables for better theme consistency
-- Updated UI text for better clarity ("Include this category" instead of category name in checkboxes)
-
-### Technical
-- Reduced inline styles from 16 to 6 instances (62.5% reduction)
-- Now uses ST's utility classes: `.marginBot10`, `.marginBot5`, `.indent20p`, `.margin-right-10px`, `.marginTopBot5`, `.displayBlock`
-- Replaced hardcoded colors (`#888`, `#aaa`, `#444`) with CSS variables (`var(--grey50)`, `var(--grey70)`, `var(--grey30)`)
-- Improved semantic HTML by converting styled labels to proper headings (`<h4>`, `<h5>`)
-- Better monospace font consistency using `var(--monoFontFamily)`
-
-## [1.8.0] - 2025-01-16
+## [1.9.0] - 2025-09-16
 
 ### Added
-- Initial CSS and HTML structure improvements
+- **Comprehensive World Info Settings Support**: Presets can now optionally capture and restore all major World Info configuration settings including:
+  - Activation settings (`world_info_depth`, `world_info_min_activations`, `world_info_min_activations_depth_max`)
+  - Budget settings (`world_info_budget`, `world_info_budget_cap`, `world_info_overflow_alert`)
+  - Behavior settings (`world_info_recursive`, `world_info_max_recursion_steps`)
+  - Matching settings (`world_info_case_sensitive`, `world_info_match_whole_words`, `world_info_include_names`)
+  - Strategy settings (`world_info_character_strategy`, `world_info_use_group_scoring`)
+  - Note: These settings are optional and don't need to be saved with every preset
+- Enhanced group chat support - character locks now work in group chats
+
+### Changed
+- Group chat UI now shows "Lock to group" instead of "Lock to character" for better clarity
+- Removed restriction that disabled character locks in group chats
+- Settings are now organized into logical categories (Activation, Budget, Behavior, Matching, Strategy) in the UI
+
+## [1.8.0] - 2025-06-01
+
+### Added
+- Basic preset functionality improvements
 
 ## [1.7.0] and earlier
 
