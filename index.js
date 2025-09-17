@@ -1208,10 +1208,6 @@ async function showSettingsSelectionDialog() {
         </div>
 
         <div id="settingsCategories" class="indent20p">
-            <div class="marginBot10">
-                <button type="button" id="selectAllBtn" class="margin-right-10px">Select All</button>
-                <button type="button" id="selectNoneBtn">Select None</button>
-            </div>
 
             ${Object.entries(categories).map(([catKey, category]) => `
                 <div class="marginBot10" style="border: 1px solid var(--grey30); padding: 10px; border-radius: 5px;">
@@ -1237,19 +1233,9 @@ async function showSettingsSelectionDialog() {
     // Add event listeners
     const includeToggle = content.querySelector('#includeSettingsToggle');
     const categoriesDiv = content.querySelector('#settingsCategories');
-    const selectAllBtn = content.querySelector('#selectAllBtn');
-    const selectNoneBtn = content.querySelector('#selectNoneBtn');
 
     includeToggle.addEventListener('change', () => {
         categoriesDiv.style.display = includeToggle.checked ? 'block' : 'none';
-    });
-
-    selectAllBtn.addEventListener('click', () => {
-        content.querySelectorAll('.categoryToggle, .settingCheckbox').forEach(cb => cb.checked = true);
-    });
-
-    selectNoneBtn.addEventListener('click', () => {
-        content.querySelectorAll('.categoryToggle, .settingCheckbox').forEach(cb => cb.checked = false);
     });
 
     // Category toggle logic
@@ -1274,7 +1260,44 @@ async function showSettingsSelectionDialog() {
         });
     });
 
-    const result = await callPopup(content, 'confirm');
+    const customButtons = [
+        {
+            text: 'Select All',
+            classes: ['stwil-custom-button', 'stwil-button-action'],
+            action: () => {
+                content.querySelectorAll('.categoryToggle, .settingCheckbox').forEach(cb => cb.checked = true);
+                // Update indeterminate states after selecting all
+                content.querySelectorAll('.categoryToggle').forEach(catToggle => {
+                    catToggle.indeterminate = false;
+                    catToggle.checked = true;
+                });
+            }
+        },
+        {
+            text: 'Select None',
+            classes: ['stwil-custom-button', 'stwil-button-action'],
+            action: () => {
+                content.querySelectorAll('.categoryToggle, .settingCheckbox').forEach(cb => cb.checked = false);
+                // Update indeterminate states after deselecting all
+                content.querySelectorAll('.categoryToggle').forEach(catToggle => {
+                    catToggle.indeterminate = false;
+                    catToggle.checked = false;
+                });
+            }
+        }
+    ];
+
+    const popup = new Popup(content, POPUP_TYPE.CONFIRM, '', {
+        okButton: 'OK',
+        cancelButton: 'Cancel',
+        customButtons: customButtons
+    });
+
+    // Apply custom styling to OK and Cancel buttons after popup is created
+    popup.okButton.classList.add('stwil-custom-button', 'stwil-button-primary');
+    popup.cancelButton.classList.add('stwil-custom-button');
+
+    const result = await popup.show();
     if (!result) return null;
 
     const includeSettings = includeToggle.checked;

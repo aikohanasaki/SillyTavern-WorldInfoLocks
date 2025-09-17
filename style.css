@@ -22,6 +22,41 @@
 	}
 }
 
+/* Custom buttons for activation popup - no grayscale filter */
+.popup .stwil-custom-button {
+	filter: none !important;
+	background-color: var(--SmartThemeBlurTintColor);
+	border: 1px solid var(--SmartThemeBorderColor);
+	color: var(--SmartThemeBodyColor);
+	opacity: 0.9;
+	transition: var(--animation-duration-2x);
+}
+
+.popup .stwil-custom-button:hover {
+	background-color: var(--white30a);
+	opacity: 1;
+}
+
+/* Primary action (OK/Confirm) - uses crimson like standard OK */
+.popup .stwil-button-primary {
+	background-color: var(--crimson70a);
+}
+
+.popup .stwil-button-primary:hover {
+	background-color: var(--crimson-hover);
+}
+
+/* Action buttons (Select All/None) - uses active color */
+.popup .stwil-button-action {
+	background-color: var(--SmartThemeBlurTintColor);
+	border-color: var(--active);
+}
+
+.popup .stwil-button-action:hover {
+	background-color: var(--active);
+	color: var(--SmartThemeBlurTintColor);
+}
+
 .shadow_popup:has(.stwil-transferModal), .popup:has(.stwil-transferModal) {
 	.dialogue_popup_ok, .popup-button-ok {
 		&:after {

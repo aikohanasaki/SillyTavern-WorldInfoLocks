@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.0] - 2025-09-17
+
+### Fixed
+- **Activation Popup Button Styling**: Fixed "whited out" appearance of buttons in the activation popup that occurs when choosing "Save Preset As"
+  - Removed problematic `filter: grayscale(0.5)` effect from custom buttons
+  - Implemented proper custom button styling using SillyTavern's CSS variables (`--crimson70a`, `--active`, `--SmartThemeBlurTintColor`, etc.)
+  - Converted activation dialog to use SillyTavern's custom button system for better integration
+  - Added properly colored "Select All" and "Select None" action buttons with green accent styling
+  - OK and Cancel buttons now use proper crimson and standard theming respectively
+
+### Changed
+- Moved Select All/Select None buttons from inline HTML to popup's custom button system for better UX and styling consistency
+
 ## [1.9.0] - 2025-09-16
 
 ### Added
