@@ -26,7 +26,6 @@ export class Settings {
     /**@type {boolean}*/ enableChatLocks = true;
     /**@type {boolean}*/ enableGroupLocks = true;
     /**@type {boolean}*/ showLockNotifications = true;
-    /**@type {boolean}*/ filterPresetsForContext = true; // Filter presets based on current context
     /**@type {String}*/ globalDefaultPreset = ''; // Global default preset name
     
     get preset() {
@@ -642,74 +641,6 @@ export const activatePreset = async(preset, skipLockCheck = false)=>{
     saveSettingsDebounced();
 };
 
-function getRelevantPresetsForContext(context) {
-    if (!context) {
-        context = getCurrentContext();
-    }
-
-    // If filtering is disabled, return all presets sorted alphabetically
-    if (!settings.filterPresetsForContext) {
-        return settings.presetList.sort((a, b) =>
-            a.name.toLowerCase().localeCompare(b.name.toLowerCase())
-        );
-    }
-
-    // Get presets that are relevant to current context
-    const relevantPresetNames = new Set();
-
-    // Always include currently selected preset
-    if (settings.presetName) {
-        relevantPresetNames.add(settings.presetName);
-    }
-
-    // Always include global default
-    if (settings.globalDefaultPreset) {
-        relevantPresetNames.add(settings.globalDefaultPreset);
-    }
-
-    // Include presets based on current context
-    if (context.isGroupChat && context.groupId) {
-        // For group chats, include group-locked presets
-        const groupLock = getGroupLock(context.groupId);
-        if (groupLock) {
-            relevantPresetNames.add(groupLock);
-        }
-
-        // Include any preset locked to groups (for group context)
-        Object.values(settings.groupLocks).forEach(presetName => {
-            if (presetName) relevantPresetNames.add(presetName);
-        });
-    } else if (context.characterName) {
-        // For character chats, include character-locked presets
-        const characterLock = getCharacterLock(context.characterName);
-        if (characterLock) {
-            relevantPresetNames.add(characterLock);
-        }
-
-        // Include any preset locked to characters (for character context)
-        Object.values(settings.characterLocks).forEach(presetName => {
-            if (presetName) relevantPresetNames.add(presetName);
-        });
-    }
-
-    // Include chat-locked presets
-    const chatLock = getChatLock();
-    if (chatLock) {
-        relevantPresetNames.add(chatLock);
-    }
-
-    // If no relevant presets found, show all (fallback)
-    if (relevantPresetNames.size === 0) {
-        return settings.presetList.sort((a, b) =>
-            a.name.toLowerCase().localeCompare(b.name.toLowerCase())
-        );
-    }
-
-    // Filter and sort relevant presets
-    return settings.presetList
-        .filter(preset => relevantPresetNames.has(preset.name))
-        .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
-}
 
 function updateLocksForContext(presetName) {
     const context = getCurrentContext();
@@ -740,17 +671,13 @@ const updateSelect = ()=>{
             '--- Pick a Preset ---';
     }
 
-    // Get filtered presets based on current context
-    const context = getCurrentContext();
-    const relevantPresets = getRelevantPresetsForContext(context);
-
     // Get all option elements (excluding the blank option)
     const opts = Array.from(presetSelect.children);
 
     const added = [];
     const removed = [];
     const updated = [];
-    for (const preset of relevantPresets) {
+    for (const preset of settings.presetList) {
         const opt = opts.find(opt=>opt.value.toLowerCase() == preset.name.toLowerCase());
         if (opt) {
             if (opt.value != preset.name) {
@@ -762,7 +689,7 @@ const updateSelect = ()=>{
     }
     for (const opt of opts) {
         if (opt.value == '') continue;
-        if (relevantPresets.find(preset=>opt.value.toLowerCase() == preset.name.toLowerCase())) continue;
+        if (settings.presetList.find(preset=>opt.value.toLowerCase() == preset.name.toLowerCase())) continue;
         removed.push(opt);
     }
     for (const opt of removed) {
@@ -927,11 +854,6 @@ async function showSettings() {
                 <input type="checkbox" id="showLockNotifications" ${settings.showLockNotifications ? 'checked' : ''}>
                 <span>Show lock notifications</span>
             </label>
-            <label class="checkbox_label">
-                <input type="checkbox" id="filterPresetsForContext" ${settings.filterPresetsForContext ? 'checked' : ''}>
-                <span>Filter presets based on current context</span>
-            </label>
-            <small style="color: var(--grey50);">When enabled, only shows presets relevant to the current character/group in the dropdown.</small>
         </div>
     `;
     
@@ -947,12 +869,8 @@ async function showSettings() {
         settings.enableChatLocks = content.querySelector('#enableChatLocks')?.checked || false;
         settings.preferChatOverCharacterLocks = content.querySelector('#preferChatOverCharacterLocks')?.checked || false;
         settings.showLockNotifications = content.querySelector('#showLockNotifications')?.checked || false;
-        settings.filterPresetsForContext = content.querySelector('#filterPresetsForContext')?.checked || false;
-        
-        saveSettingsDebounced();
 
-        // Update the dropdown to reflect filtering changes
-        updateSelect();
+        saveSettingsDebounced();
 
         // If global default changed and we're in a context with no locks and no preset, apply the new default
         if (newGlobalDefault !== oldGlobalDefault && !settings.presetName && !hasAnyLocks()) {
@@ -1412,7 +1330,6 @@ function onCharacterChanged() {
     console.log('STWIL: Character changed');
     clearContextCache(); // Clear cache when character changes
     updateLockButton();
-    updateSelect(); // Update dropdown filtering for new context
 
     // Always check for locks and global defaults, regardless of lock settings
     setTimeout(() => {
@@ -1426,7 +1343,6 @@ function onChatChanged() {
     console.log('STWIL: Chat changed');
     clearContextCache(); // Clear cache when chat changes
     updateLockButton();
-    updateSelect(); // Update dropdown filtering for new context
     setTimeout(() => {
         checkAndApplyLocks();
     }, 100);
