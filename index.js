@@ -20,10 +20,13 @@ export class Settings {
     /**@type {String}*/ presetName;
     /**@type {Preset[]}*/ presetList = [];
     /**@type {Object.<string, string>}*/ characterLocks = {}; // characterName -> presetName
+    /**@type {Object.<string, string>}*/ groupLocks = {}; // groupId -> presetName
     /**@type {boolean}*/ preferChatOverCharacterLocks = false;
     /**@type {boolean}*/ enableCharacterLocks = true;
     /**@type {boolean}*/ enableChatLocks = true;
+    /**@type {boolean}*/ enableGroupLocks = true;
     /**@type {boolean}*/ showLockNotifications = true;
+    /**@type {boolean}*/ filterPresetsForContext = true; // Filter presets based on current context
     /**@type {String}*/ globalDefaultPreset = ''; // Global default preset name
     
     get preset() {
@@ -61,20 +64,13 @@ let settingsButton;
 function getCharacterNameForSettings() {
     // Check if we're in a group chat first
     const isGroupChat = !!selected_group;
-    
+
     if (isGroupChat) {
-        // For group chats, use the group name as the character identifier
-        const group = groups?.find(x => x.id === selected_group);
-        if (group && group.name) {
-            const groupName = String(group.name).trim();
-            console.log('STWIL: Group chat detected, using group name:', groupName);
-            return groupName;
-        } else {
-            console.warn('STWIL: Group chat detected but no group name available');
-            return null;
-        }
+        // For group chats, this function should return null since groups are handled separately
+        console.log('STWIL: Group chat detected, returning null for character name');
+        return null;
     }
-    
+
     // For single character chats, use existing logic
     // Primary: Use name2 variable from script.js
     let rawCharacterName = name2;
@@ -283,6 +279,58 @@ function migratePresetsToIncludeSettings() {
     return migrated;
 }
 
+function migrateGroupLocksFromCharacterLocks() {
+    // Check if we have any group names in characterLocks that should be moved to groupLocks
+    if (!settings.characterLocks || Object.keys(settings.characterLocks).length === 0) {
+        return; // Nothing to migrate
+    }
+
+    // Initialize groupLocks if it doesn't exist
+    if (!settings.groupLocks) {
+        settings.groupLocks = {};
+    }
+
+    let migrated = 0;
+    const groupsToMigrate = [];
+
+    // Check each characterLock to see if it matches a group name
+    for (const [lockKey, presetName] of Object.entries(settings.characterLocks)) {
+        // Try to find a group with this name
+        const group = groups?.find(g => g.name === lockKey);
+        if (group) {
+            groupsToMigrate.push({
+                key: lockKey,
+                presetName: presetName,
+                groupId: group.id,
+                groupName: group.name
+            });
+        }
+    }
+
+    // Migrate the identified group locks
+    for (const migration of groupsToMigrate) {
+        // Move to groupLocks using ID
+        settings.groupLocks[migration.groupId] = migration.presetName;
+
+        // Remove from characterLocks
+        delete settings.characterLocks[migration.key];
+
+        migrated++;
+        console.log(`STWIL: Migrated group lock from character name "${migration.groupName}" to group ID "${migration.groupId}"`);
+    }
+
+    if (migrated > 0) {
+        saveSettingsDebounced();
+        console.log(`STWIL: Group lock migration complete. Migrated ${migrated} group locks from character storage`);
+
+        if (settings.showLockNotifications) {
+            toastr.info(`Migrated ${migrated} group locks to use group IDs instead of names`, 'World Info Presets');
+        }
+    }
+
+    return migrated;
+}
+
 // Cache helper functions
 function clearContextCache() {
     cachedContext = null;
@@ -301,21 +349,25 @@ function getCurrentContext() {
     
     // Clear cache and recalculate
     clearContextCache();
-    const characterName = getCharacterNameForSettings();
     const isGroupChat = !!selected_group;
-    let chatId = chat_metadata?.file_name || null;
+    let characterName = null;
     let groupId = null;
     let groupName = null;
-    
+    let chatId = chat_metadata?.file_name || null;
+
     if (isGroupChat) {
-        // For group chats, also get group-specific information
+        // For group chats, get group-specific information
         groupId = selected_group;
-        const group = groups?.find(x => x.id === selected_group);
+        const group = groups?.find(x => x.id === groupId);
         if (group) {
             groupName = group.name;
             // Use group's chat_id if available, fallback to metadata file_name
             chatId = group.chat_id || chatId;
         }
+        // Don't set characterName for groups
+    } else {
+        // For single character chats, get character name
+        characterName = getCharacterNameForSettings();
     }
     
     // Cache the new context
@@ -364,15 +416,36 @@ function setCharacterLock(characterName, presetName) {
     saveSettingsDebounced();
 }
 
+function getGroupLock(groupId) {
+    if (!groupId) return null;
+    return settings.groupLocks[groupId] || null;
+}
+
+function setGroupLock(groupId, presetName) {
+    if (!groupId) return;
+    if (presetName) {
+        settings.groupLocks[groupId] = presetName;
+    } else {
+        delete settings.groupLocks[groupId];
+    }
+    saveSettingsDebounced();
+}
+
 function getLockForContext() {
     const context = getCurrentContext();
     const chatLock = settings.enableChatLocks ? getChatLock() : null;
-    const characterLock = settings.enableCharacterLocks ? getCharacterLock(context.characterName) : null;
-    
-    if (settings.preferChatOverCharacterLocks) {
-        return chatLock || characterLock;
+
+    let contextLock = null;
+    if (context.isGroupChat) {
+        contextLock = settings.enableGroupLocks ? getGroupLock(context.groupId) : null;
     } else {
-        return characterLock || chatLock;
+        contextLock = settings.enableCharacterLocks ? getCharacterLock(context.characterName) : null;
+    }
+
+    if (settings.preferChatOverCharacterLocks) {
+        return chatLock || contextLock;
+    } else {
+        return contextLock || chatLock;
     }
 }
 
@@ -398,8 +471,14 @@ function getEffectivePreset() {
 function hasAnyLocks() {
     const context = getCurrentContext();
     const chatLock = settings.enableChatLocks ? getChatLock() : null;
-    const characterLock = settings.enableCharacterLocks ? getCharacterLock(context.characterName) : null;
-    return !!(chatLock || characterLock);
+
+    if (context.isGroupChat) {
+        const groupLock = settings.enableGroupLocks ? getGroupLock(context.groupId) : null;
+        return !!(chatLock || groupLock);
+    } else {
+        const characterLock = settings.enableCharacterLocks ? getCharacterLock(context.characterName) : null;
+        return !!(chatLock || characterLock);
+    }
 }
 
 async function checkAndApplyLocks() {
@@ -421,7 +500,12 @@ async function checkAndApplyLocks() {
                 await activatePreset(preset);
                 if (settings.showLockNotifications) {
                     const context = getCurrentContext();
-                    const lockType = getChatLock() ? 'chat' : 'character';
+                    let lockType = 'character';
+                    if (getChatLock()) {
+                        lockType = 'chat';
+                    } else if (context.isGroupChat) {
+                        lockType = 'group';
+                    }
                     toastr.info(`Applied locked preset "${lockedPreset}" for ${lockType}`, 'World Info Presets');
                 }
                 return; // Success
@@ -558,36 +642,115 @@ export const activatePreset = async(preset, skipLockCheck = false)=>{
     saveSettingsDebounced();
 };
 
-async function updateLocksForContext(presetName) {
+function getRelevantPresetsForContext(context) {
+    if (!context) {
+        context = getCurrentContext();
+    }
+
+    // If filtering is disabled, return all presets sorted alphabetically
+    if (!settings.filterPresetsForContext) {
+        return settings.presetList.sort((a, b) =>
+            a.name.toLowerCase().localeCompare(b.name.toLowerCase())
+        );
+    }
+
+    // Get presets that are relevant to current context
+    const relevantPresetNames = new Set();
+
+    // Always include currently selected preset
+    if (settings.presetName) {
+        relevantPresetNames.add(settings.presetName);
+    }
+
+    // Always include global default
+    if (settings.globalDefaultPreset) {
+        relevantPresetNames.add(settings.globalDefaultPreset);
+    }
+
+    // Include presets based on current context
+    if (context.isGroupChat && context.groupId) {
+        // For group chats, include group-locked presets
+        const groupLock = getGroupLock(context.groupId);
+        if (groupLock) {
+            relevantPresetNames.add(groupLock);
+        }
+
+        // Include any preset locked to groups (for group context)
+        Object.values(settings.groupLocks).forEach(presetName => {
+            if (presetName) relevantPresetNames.add(presetName);
+        });
+    } else if (context.characterName) {
+        // For character chats, include character-locked presets
+        const characterLock = getCharacterLock(context.characterName);
+        if (characterLock) {
+            relevantPresetNames.add(characterLock);
+        }
+
+        // Include any preset locked to characters (for character context)
+        Object.values(settings.characterLocks).forEach(presetName => {
+            if (presetName) relevantPresetNames.add(presetName);
+        });
+    }
+
+    // Include chat-locked presets
+    const chatLock = getChatLock();
+    if (chatLock) {
+        relevantPresetNames.add(chatLock);
+    }
+
+    // If no relevant presets found, show all (fallback)
+    if (relevantPresetNames.size === 0) {
+        return settings.presetList.sort((a, b) =>
+            a.name.toLowerCase().localeCompare(b.name.toLowerCase())
+        );
+    }
+
+    // Filter and sort relevant presets
+    return settings.presetList
+        .filter(preset => relevantPresetNames.has(preset.name))
+        .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+}
+
+function updateLocksForContext(presetName) {
     const context = getCurrentContext();
-    
+
     if (getChatLock()) {
         setChatLock(presetName);
     }
-    
-    if (getCharacterLock(context.characterName)) {
-        setCharacterLock(context.characterName, presetName);
+
+    if (context.isGroupChat) {
+        if (getGroupLock(context.groupId)) {
+            setGroupLock(context.groupId, presetName);
+        }
+    } else {
+        if (getCharacterLock(context.characterName)) {
+            setCharacterLock(context.characterName, presetName);
+        }
     }
 }
 
 const updateSelect = ()=>{
     if (!presetSelect) return; // Guard against race condition
-    
+
     // Update the blank option to show global default
     const blankOption = presetSelect.children[0];
     if (blankOption && blankOption.value === '') {
-        blankOption.textContent = settings.globalDefaultPreset ? 
-            `--- Default: ${settings.globalDefaultPreset} ---` : 
+        blankOption.textContent = settings.globalDefaultPreset ?
+            `--- Default: ${settings.globalDefaultPreset} ---` :
             '--- Pick a Preset ---';
     }
-    
+
+    // Get filtered presets based on current context
+    const context = getCurrentContext();
+    const relevantPresets = getRelevantPresetsForContext(context);
+
     // Get all option elements (excluding the blank option)
     const opts = Array.from(presetSelect.children);
 
     const added = [];
     const removed = [];
     const updated = [];
-    for (const preset of settings.presetList) {
+    for (const preset of relevantPresets) {
         const opt = opts.find(opt=>opt.value.toLowerCase() == preset.name.toLowerCase());
         if (opt) {
             if (opt.value != preset.name) {
@@ -599,7 +762,7 @@ const updateSelect = ()=>{
     }
     for (const opt of opts) {
         if (opt.value == '') continue;
-        if (settings.presetList.find(preset=>opt.value.toLowerCase() == preset.name.toLowerCase())) continue;
+        if (relevantPresets.find(preset=>opt.value.toLowerCase() == preset.name.toLowerCase())) continue;
         removed.push(opt);
     }
     for (const opt of removed) {
@@ -645,50 +808,76 @@ function updateLockButton() {
 async function showLockSettings() {
     const context = getCurrentContext();
     const chatLock = getChatLock();
-    const characterLock = getCharacterLock(context.characterName);
-    
-    const lockTypeLabel = context.isGroupChat ? 'group' : 'character';
-    const characterLockHtml = `
-        <label class="checkbox_label">
-            <input type="checkbox" id="characterLockCheckbox" ${characterLock ? 'checked' : ''}>
-            <span>Lock to ${lockTypeLabel}${context.characterName ? ` (${context.characterName})` : ''}</span>
-        </label>
-    `;
+
+    let contextLockHtml = '';
+    let currentContextLock = false;
+
+    if (context.isGroupChat) {
+        const groupLock = getGroupLock(context.groupId);
+        currentContextLock = groupLock;
+        contextLockHtml = `
+            <label class="checkbox_label">
+                <input type="checkbox" id="groupLockCheckbox" ${groupLock ? 'checked' : ''}>
+                <span>Lock to group${context.groupName ? ` (${context.groupName})` : ''}</span>
+            </label>
+        `;
+    } else {
+        const characterLock = getCharacterLock(context.characterName);
+        currentContextLock = characterLock;
+        contextLockHtml = `
+            <label class="checkbox_label">
+                <input type="checkbox" id="characterLockCheckbox" ${characterLock ? 'checked' : ''}>
+                <span>Lock to character${context.characterName ? ` (${context.characterName})` : ''}</span>
+            </label>
+        `;
+    }
 
     const content = document.createElement('div');
     content.innerHTML = `
         <h3>Preset Locks</h3>
         <p>Lock the current preset "${settings.presetName || 'None'}" to this context:</p>
         <div>
-            ${characterLockHtml}
+            ${contextLockHtml}
             <label class="checkbox_label">
                 <input type="checkbox" id="chatLockCheckbox" ${chatLock ? 'checked' : ''}>
                 <span>Lock to chat</span>
             </label>
         </div>
     `;
-    
+
     const result = await callPopup(content, 'confirm');
-    
+
     if (result) {
         const chatLockChecked = content.querySelector('#chatLockCheckbox')?.checked || false;
-        const characterLockChecked = content.querySelector('#characterLockCheckbox')?.checked || false;
-        
+
         // Update chat lock
         setChatLock(chatLockChecked ? settings.presetName : null);
-        
-        // Update character/group lock
-        if (context.characterName) {
-            setCharacterLock(context.characterName, characterLockChecked ? settings.presetName : null);
+
+        // Update context-specific lock (group or character)
+        if (context.isGroupChat) {
+            const groupLockChecked = content.querySelector('#groupLockCheckbox')?.checked || false;
+            setGroupLock(context.groupId, groupLockChecked ? settings.presetName : null);
+        } else {
+            const characterLockChecked = content.querySelector('#characterLockCheckbox')?.checked || false;
+            if (context.characterName) {
+                setCharacterLock(context.characterName, characterLockChecked ? settings.presetName : null);
+            }
         }
-        
+
         updateLockButton();
-        
+
         if (settings.showLockNotifications) {
             const locks = [];
             if (chatLockChecked) locks.push('chat');
-            if (characterLockChecked) locks.push(context.isGroupChat ? 'group' : 'character');
-            
+
+            if (context.isGroupChat) {
+                const groupLockChecked = content.querySelector('#groupLockCheckbox')?.checked || false;
+                if (groupLockChecked) locks.push('group');
+            } else {
+                const characterLockChecked = content.querySelector('#characterLockCheckbox')?.checked || false;
+                if (characterLockChecked) locks.push('character');
+            }
+
             if (locks.length > 0) {
                 toastr.success(`Preset "${settings.presetName}" locked to ${locks.join(' and ')}`, 'World Info Presets');
             } else {
@@ -723,17 +912,26 @@ async function showSettings() {
                 <span>Enable character locks</span>
             </label>
             <label class="checkbox_label">
+                <input type="checkbox" id="enableGroupLocks" ${settings.enableGroupLocks ? 'checked' : ''}>
+                <span>Enable group locks</span>
+            </label>
+            <label class="checkbox_label">
                 <input type="checkbox" id="enableChatLocks" ${settings.enableChatLocks ? 'checked' : ''}>
                 <span>Enable chat locks</span>
             </label>
             <label class="checkbox_label">
                 <input type="checkbox" id="preferChatOverCharacterLocks" ${settings.preferChatOverCharacterLocks ? 'checked' : ''}>
-                <span>Prefer chat locks over character locks</span>
+                <span>Prefer chat locks over character/group locks</span>
             </label>
             <label class="checkbox_label">
                 <input type="checkbox" id="showLockNotifications" ${settings.showLockNotifications ? 'checked' : ''}>
                 <span>Show lock notifications</span>
             </label>
+            <label class="checkbox_label">
+                <input type="checkbox" id="filterPresetsForContext" ${settings.filterPresetsForContext ? 'checked' : ''}>
+                <span>Filter presets based on current context</span>
+            </label>
+            <small style="color: var(--grey50);">When enabled, only shows presets relevant to the current character/group in the dropdown.</small>
         </div>
     `;
     
@@ -745,12 +943,17 @@ async function showSettings() {
         
         settings.globalDefaultPreset = newGlobalDefault;
         settings.enableCharacterLocks = content.querySelector('#enableCharacterLocks')?.checked || false;
+        settings.enableGroupLocks = content.querySelector('#enableGroupLocks')?.checked || false;
         settings.enableChatLocks = content.querySelector('#enableChatLocks')?.checked || false;
         settings.preferChatOverCharacterLocks = content.querySelector('#preferChatOverCharacterLocks')?.checked || false;
         settings.showLockNotifications = content.querySelector('#showLockNotifications')?.checked || false;
+        settings.filterPresetsForContext = content.querySelector('#filterPresetsForContext')?.checked || false;
         
         saveSettingsDebounced();
-        
+
+        // Update the dropdown to reflect filtering changes
+        updateSelect();
+
         // If global default changed and we're in a context with no locks and no preset, apply the new default
         if (newGlobalDefault !== oldGlobalDefault && !settings.presetName && !hasAnyLocks()) {
             checkAndApplyLocks();
@@ -984,6 +1187,16 @@ const importCharacterLocks = async(data)=>{
     }
 };
 
+const importGroupLocks = async(data)=>{
+    if (data.groupLocks && Object.keys(data.groupLocks).length > 0) {
+        const doImport = await callPopup(`<h3>The preset contains group locks. Import the group locks?<h3>`, 'confirm');
+        if (doImport) {
+            Object.assign(settings.groupLocks, data.groupLocks);
+            saveSettingsDebounced();
+        }
+    }
+};
+
 const importGlobalDefault = async(data, presetName)=>{
     if (data.isGlobalDefault) {
         const doImport = await callPopup(`<h3>This preset was exported as a global default. Set "${presetName}" as your global default?<h3>`, 'confirm');
@@ -1028,6 +1241,7 @@ const importSinglePreset = async(file)=>{
                     old.worldInfoSettings = data.worldInfoSettings ?? null;
                     await importBooks(data);
                     await importCharacterLocks(data);
+                    await importGroupLocks(data);
                     await importGlobalDefault(data, newName);
                     if (settings.preset == old) {
                         activatePreset(old);
@@ -1047,6 +1261,7 @@ const importSinglePreset = async(file)=>{
         settings.presetList.push(preset);
         await importBooks(data);
         await importCharacterLocks(data);
+        await importGroupLocks(data);
         await importGlobalDefault(data, preset.name);
         updateSelect();
         saveSettingsDebounced();
@@ -1197,7 +1412,8 @@ function onCharacterChanged() {
     console.log('STWIL: Character changed');
     clearContextCache(); // Clear cache when character changes
     updateLockButton();
-    
+    updateSelect(); // Update dropdown filtering for new context
+
     // Always check for locks and global defaults, regardless of lock settings
     setTimeout(() => {
         checkAndApplyLocks();
@@ -1206,10 +1422,11 @@ function onCharacterChanged() {
 
 function onChatChanged() {
     if (!settings.enableChatLocks) return;
-    
+
     console.log('STWIL: Chat changed');
     clearContextCache(); // Clear cache when chat changes
     updateLockButton();
+    updateSelect(); // Update dropdown filtering for new context
     setTimeout(() => {
         checkAndApplyLocks();
     }, 100);
@@ -1225,6 +1442,9 @@ const init = ()=>{
 
     // Migrate existing presets to include world info settings
     migratePresetsToIncludeSettings();
+
+    // Migrate group locks from character locks storage
+    migrateGroupLocksFromCharacterLocks();
     
     const dom = document.createElement('div'); {
         dom.classList.add('stwil-container');
@@ -1313,6 +1533,13 @@ const init = ()=>{
                     for (const [charName, lockedPreset] of Object.entries(settings.characterLocks)) {
                         if (lockedPreset === oldName) {
                             settings.characterLocks[charName] = name;
+                        }
+                    }
+
+                    // Update group locks that reference this preset
+                    for (const [groupId, lockedPreset] of Object.entries(settings.groupLocks)) {
+                        if (lockedPreset === oldName) {
+                            settings.groupLocks[groupId] = name;
                         }
                     }
                     
@@ -1421,6 +1648,17 @@ const init = ()=>{
                     if (Object.keys(relevantLocks).length > 0) {
                         data.characterLocks = relevantLocks;
                     }
+
+                    // Include group locks in export
+                    const relevantGroupLocks = {};
+                    for (const [groupId, lockedPreset] of Object.entries(settings.groupLocks)) {
+                        if (lockedPreset === settings.presetName) {
+                            relevantGroupLocks[groupId] = lockedPreset;
+                        }
+                    }
+                    if (Object.keys(relevantGroupLocks).length > 0) {
+                        data.groupLocks = relevantGroupLocks;
+                    }
                     
                     // Include global default setting if this preset is the global default
                     if (settings.globalDefaultPreset === settings.presetName) {
@@ -1467,6 +1705,13 @@ const init = ()=>{
                                 delete settings.characterLocks[charName];
                             }
                         }
+
+                        // Remove group locks that reference this preset
+                        for (const [groupId, lockedPreset] of Object.entries(settings.groupLocks)) {
+                            if (lockedPreset === presetName) {
+                                delete settings.groupLocks[groupId];
+                            }
+                        }
                         
                         // Remove chat lock if it references this preset
                         const chatLock = getChatLock();
@@ -1508,6 +1753,7 @@ const init = ()=>{
             clearContextCache(); // Clear cache when chat loads
             setTimeout(() => {
                 updateLockButton();
+                updateSelect(); // Update dropdown filtering for new context
                 checkAndApplyLocks();
             }, 500);
         });
