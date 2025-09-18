@@ -22,9 +22,9 @@
 	}
 }
 
-/* Custom buttons for activation popup - no grayscale filter */
-.popup .stwil-custom-button {
-	filter: none !important;
+/* Custom buttons for WorldInfoLocks settings selection popup */
+.popup:has(.stwil-settings-selection) .stwil-custom-button {
+	filter: none;
 	background-color: var(--SmartThemeBlurTintColor);
 	border: 1px solid var(--SmartThemeBorderColor);
 	color: var(--SmartThemeBodyColor);
@@ -32,27 +32,18 @@
 	transition: var(--animation-duration-2x);
 }
 
-.popup .stwil-custom-button:hover {
+.popup:has(.stwil-settings-selection) .stwil-custom-button:hover {
 	background-color: var(--white30a);
 	opacity: 1;
 }
 
-/* Primary action (OK/Confirm) - uses crimson like standard OK */
-.popup .stwil-button-primary {
-	background-color: var(--crimson70a);
-}
-
-.popup .stwil-button-primary:hover {
-	background-color: var(--crimson-hover);
-}
-
 /* Action buttons (Select All/None) - uses active color */
-.popup .stwil-button-action {
+.popup:has(.stwil-settings-selection) .stwil-button-action {
 	background-color: var(--SmartThemeBlurTintColor);
 	border-color: var(--active);
 }
 
-.popup .stwil-button-action:hover {
+.popup:has(.stwil-settings-selection) .stwil-button-action:hover {
 	background-color: var(--active);
 	color: var(--SmartThemeBlurTintColor);
 }

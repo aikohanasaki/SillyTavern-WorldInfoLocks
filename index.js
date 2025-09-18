@@ -1193,6 +1193,7 @@ async function showSettingsSelectionDialog() {
     const allSettings = Object.values(categories).flatMap(cat => cat.settings);
 
     const content = document.createElement('div');
+    content.className = 'stwil-settings-selection';
     content.innerHTML = `
         <h3>World Info Settings Inclusion</h3>
         <p>Choose which global world info settings to include in this preset:</p>
@@ -1293,9 +1294,7 @@ async function showSettingsSelectionDialog() {
         customButtons: customButtons
     });
 
-    // Apply custom styling to OK and Cancel buttons after popup is created
-    popup.okButton.classList.add('stwil-custom-button', 'stwil-button-primary');
-    popup.cancelButton.classList.add('stwil-custom-button');
+    // Note: OK and Cancel buttons use ST's native styling
 
     const result = await popup.show();
     if (!result) return null;
