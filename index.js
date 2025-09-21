@@ -1291,7 +1291,8 @@ async function showSettingsSelectionDialog() {
     const popup = new Popup(content, POPUP_TYPE.CONFIRM, '', {
         okButton: 'OK',
         cancelButton: 'Cancel',
-        customButtons: customButtons
+        customButtons: customButtons,
+        allowVerticalScrolling: true
     });
 
     // Note: OK and Cancel buttons use ST's native styling
