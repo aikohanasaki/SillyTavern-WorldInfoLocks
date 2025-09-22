@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.10.2] - 2025-09-22
+
+### Changed
+- **CSS Architecture**: Removed custom CSS file and migrated all styling to use SillyTavern's native CSS classes for better consistency and maintainability
+- **Code Quality**: Consolidated classList.add() calls to follow DRY principle and improve code readability
+
+### Fixed
+- **Extension Loading**: Fixed manifest.json to properly load extension without custom CSS dependency
+
 ## [1.10.1] - 2025-09-21
 
 ### Fixed

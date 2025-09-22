@@ -1193,7 +1193,7 @@ async function showSettingsSelectionDialog() {
     const allSettings = Object.values(categories).flatMap(cat => cat.settings);
 
     const content = document.createElement('div');
-    content.className = 'stwil-settings-selection';
+    // No custom className needed - let ST handle popup content styling
     content.innerHTML = `
         <h3>World Info Settings Inclusion</h3>
         <p>Choose which global world info settings to include in this preset:</p>
@@ -1264,7 +1264,7 @@ async function showSettingsSelectionDialog() {
     const customButtons = [
         {
             text: 'Select All',
-            classes: ['stwil-custom-button', 'stwil-button-action'],
+            classes: ['menu_button'],
             action: () => {
                 content.querySelectorAll('.categoryToggle, .settingCheckbox').forEach(cb => cb.checked = true);
                 // Update indeterminate states after selecting all
@@ -1276,7 +1276,7 @@ async function showSettingsSelectionDialog() {
         },
         {
             text: 'Select None',
-            classes: ['stwil-custom-button', 'stwil-button-action'],
+            classes: ['menu_button'],
             action: () => {
                 content.querySelectorAll('.categoryToggle, .settingCheckbox').forEach(cb => cb.checked = false);
                 // Update indeterminate states after deselecting all
@@ -1386,9 +1386,21 @@ const init = ()=>{
     migrateGroupLocksFromCharacterLocks();
     
     const dom = document.createElement('div'); {
-        dom.classList.add('stwil-container');
+        dom.classList.add('flex', 'flexAuto', 'flexFlowRow', 'alignItemsBaseline');
+        dom.style.gap = '1em';
+        dom.style.marginRight = '1em';
+        dom.style.opacity = '0.25';
+        dom.style.filter = 'saturate(0.5)';
+        dom.style.transition = '200ms';
+        dom.addEventListener('mouseenter', () => {
+            dom.style.opacity = '1';
+            dom.style.filter = 'saturate(1.0)';
+        });
+        dom.addEventListener('mouseleave', () => {
+            dom.style.opacity = '0.25';
+            dom.style.filter = 'saturate(0.5)';
+        });
         presetSelect = document.createElement('select'); {
-            presetSelect.classList.add('stwil-preset');
             const blank = document.createElement('option'); {
                 blank.value = '';
                 blank.textContent = settings.globalDefaultPreset ? 
@@ -1430,13 +1442,12 @@ const init = ()=>{
             dom.append(presetSelect);
         }
         const actions = document.createElement('div'); {
-            actions.classList.add('stwil-actions');
+            actions.classList.add('flex', 'flexFlowRow');
+            actions.style.gap = '0.25em';
             
             // Lock button
             lockButton = document.createElement('div'); {
-                lockButton.classList.add('stwil-action');
-                lockButton.classList.add('menu_button');
-                lockButton.classList.add('fa-solid', 'fa-lock');
+                lockButton.classList.add('menu_button', 'fa-solid', 'fa-lock');
                 lockButton.title = 'Preset locks';
                 lockButton.addEventListener('click', showLockSettings);
                 actions.append(lockButton);
@@ -1444,18 +1455,14 @@ const init = ()=>{
             
             // Settings button
             settingsButton = document.createElement('div'); {
-                settingsButton.classList.add('stwil-action');
-                settingsButton.classList.add('menu_button');
-                settingsButton.classList.add('fa-solid', 'fa-gear');
+                settingsButton.classList.add('menu_button', 'fa-solid', 'fa-gear');
                 settingsButton.title = 'Settings';
                 settingsButton.addEventListener('click', showSettings);
                 actions.append(settingsButton);
             }
             
             const btnRename = document.createElement('div'); {
-                btnRename.classList.add('stwil-action');
-                btnRename.classList.add('menu_button');
-                btnRename.classList.add('fa-solid', 'fa-pencil');
+                btnRename.classList.add('menu_button', 'fa-solid', 'fa-pencil');
                 btnRename.title = 'Rename current preset';
                 btnRename.addEventListener('click', async()=>{
                     const oldName = settings.presetName;
@@ -1495,9 +1502,7 @@ const init = ()=>{
                 actions.append(btnRename);
             }
             const btnUpdate = document.createElement('div'); {
-                btnUpdate.classList.add('stwil-action');
-                btnUpdate.classList.add('menu_button');
-                btnUpdate.classList.add('fa-solid', 'fa-save');
+                btnUpdate.classList.add('menu_button', 'fa-solid', 'fa-save');
                 btnUpdate.title = 'Update current preset';
                 btnUpdate.addEventListener('click', ()=>{
                     if (!settings.preset) return createPreset();
@@ -1508,23 +1513,18 @@ const init = ()=>{
                 actions.append(btnUpdate);
             }
             const btnCreate = document.createElement('div'); {
-                btnCreate.classList.add('stwil-action');
-                btnCreate.classList.add('menu_button');
-                btnCreate.classList.add('fa-solid', 'fa-file-circle-plus');
+                btnCreate.classList.add('menu_button', 'fa-solid', 'fa-file-circle-plus');
                 btnCreate.title = 'Save current preset as';
                 btnCreate.addEventListener('click', async()=>createPreset());
                 actions.append(btnCreate);
             }
             const btnRestore = document.createElement('div'); {
-                btnRestore.classList.add('stwil-action');
-                btnRestore.classList.add('menu_button');
-                btnRestore.classList.add('fa-solid', 'fa-rotate-left');
+                btnRestore.classList.add('menu_button', 'fa-solid', 'fa-rotate-left');
                 btnRestore.title = 'Restore current preset';
                 btnRestore.addEventListener('click', ()=>activatePreset(settings.preset, true));
                 actions.append(btnRestore);
             }
             const importFile = document.createElement('input'); {
-                importFile.classList.add('stwil-importFile');
                 importFile.type = 'file';
                 importFile.addEventListener('change', async()=>{
                     await importPreset(importFile.files);
@@ -1532,17 +1532,13 @@ const init = ()=>{
                 });
             }
             const btnImport = document.createElement('div'); {
-                btnImport.classList.add('stwil-action');
-                btnImport.classList.add('menu_button');
-                btnImport.classList.add('fa-solid', 'fa-file-import');
+                btnImport.classList.add('menu_button', 'fa-solid', 'fa-file-import');
                 btnImport.title = 'Import preset';
                 btnImport.addEventListener('click', ()=>importFile.click());
                 actions.append(btnImport);
             }
             const btnExport = document.createElement('div'); {
-                btnExport.classList.add('stwil-action');
-                btnExport.classList.add('menu_button');
-                btnExport.classList.add('fa-solid', 'fa-file-export');
+                btnExport.classList.add('menu_button', 'fa-solid', 'fa-file-export');
                 btnExport.title = 'Export the current preset';
                 btnExport.addEventListener('click', async () => {
                     if (!settings.preset) {
@@ -1627,10 +1623,7 @@ const init = ()=>{
                 actions.append(btnExport);
             }
             const btnDelete = document.createElement('div'); {
-                btnDelete.classList.add('stwil-action');
-                btnDelete.classList.add('menu_button');
-                btnDelete.classList.add('redWarningBG');
-                btnDelete.classList.add('fa-solid', 'fa-trash-can');
+                btnDelete.classList.add('menu_button', 'redWarningBG', 'fa-solid', 'fa-trash-can');
                 btnDelete.title = 'Delete the current preset';
                 btnDelete.addEventListener('click', async()=>{
                     if (settings.presetName == '') return;
