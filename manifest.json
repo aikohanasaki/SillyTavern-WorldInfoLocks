@@ -6,6 +6,7 @@
     "js": "index.js",
     "author": "aikohanasaki",
     "version": "1.10.2",
+    "license": "AGPL-3.0",
     "homePage": "https://github.com/aikohanasaki/SSillyTavern-WorldInfoLocks",
     "auto_update": true,
     "description": "Locks world info presets by character and/or chat. No more having to remember to change the presets when switching characters or chats! Forked from SillyTavern-WorldInfoPresets by Lenny Anderson."
