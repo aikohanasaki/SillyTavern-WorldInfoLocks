@@ -66,7 +66,6 @@ function getCharacterNameForSettings() {
 
     if (isGroupChat) {
         // For group chats, this function should return null since groups are handled separately
-        console.log('STWIL: Group chat detected, returning null for character name');
         return null;
     }
 
@@ -379,8 +378,6 @@ function getCurrentContext() {
     };
     cacheTimestamp = Date.now();
     
-    console.log('STWIL: Context updated:', cachedContext);
-    
     return cachedContext;
 }
 
@@ -485,7 +482,6 @@ async function checkAndApplyLocks() {
     let attempts = 0;
     const maxAttempts = 10;
     
-    console.log('STWIL: checkAndApplyLocks called');
     console.log('STWIL: Current settings.presetName:', settings.presetName);
     console.log('STWIL: Global default preset:', settings.globalDefaultPreset);
     
@@ -516,7 +512,6 @@ async function checkAndApplyLocks() {
         
         // If we reach here, either no lock or character data not ready
         const context = getCurrentContext();
-        console.log('STWIL: Current context:', context);
         
         if (!context.characterName && !context.chatId) {
             console.log('STWIL: Character/chat data not ready, waiting... attempt', attempts + 1);
@@ -1350,7 +1345,6 @@ const createPreset = async()=>{
 
 // Event handlers
 function onCharacterChanged() {
-    console.log('STWIL: Character changed');
     clearContextCache(); // Clear cache when character changes
     updateLockButton();
 
@@ -1361,9 +1355,6 @@ function onCharacterChanged() {
 }
 
 function onChatChanged() {
-    if (!settings.enableChatLocks) return;
-
-    console.log('STWIL: Chat changed');
     clearContextCache(); // Clear cache when chat changes
     updateLockButton();
     setTimeout(() => {
