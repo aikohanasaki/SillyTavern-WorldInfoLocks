@@ -4,6 +4,8 @@ import { POPUP_RESULT, POPUP_TYPE, Popup } from '../../../popup.js';
 import { executeSlashCommands, registerSlashCommand } from '../../../slash-commands.js';
 import { importWorldInfo, world_info, getWorldInfoSettings } from '../../../world-info.js';
 import { selected_group, groups } from '../../../group-chats.js';
+import { t, addLocaleData } from '../../../i18n.js';
+import { localeData } from './locales.js';
 
 // Context cache to avoid redundant character name lookups
 let cachedContext = null;
