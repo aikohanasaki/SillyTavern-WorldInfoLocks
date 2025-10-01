@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.10.4] - 2025-10-01
+
+### Security
+- **XSS Prevention**: Added proper HTML escaping for all user-controlled inputs to prevent cross-site scripting attacks
+  - Imported `escapeHtml` utility from SillyTavern's utils.js
+  - Sanitized preset names, character names, group names, and book names in all UI dialogs
+  - Sanitized user input in toast notifications and error messages
+  - Applied escaping to all innerHTML assignments containing dynamic content
+
 ## [1.10.3] - 2025-09-30
 
 ### Fixed

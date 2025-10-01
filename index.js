@@ -4,6 +4,7 @@ import { POPUP_RESULT, POPUP_TYPE, Popup } from '../../../popup.js';
 import { executeSlashCommands, registerSlashCommand } from '../../../slash-commands.js';
 import { importWorldInfo, world_info, getWorldInfoSettings } from '../../../world-info.js';
 import { selected_group, groups } from '../../../group-chats.js';
+import { escapeHtml } from '../../../utils.js';
 
 // Context cache to avoid redundant character name lookups
 let cachedContext = null;
@@ -501,11 +502,11 @@ async function checkAndApplyLocks() {
                     } else if (context.isGroupChat) {
                         lockType = 'group';
                     }
-                    toastr.info(`Applied locked preset "${lockedPreset}" for ${lockType}`, 'World Info Presets');
+                    toastr.info(`Applied locked preset "${escapeHtml(lockedPreset)}" for ${lockType}`, 'World Info Presets');
                 }
                 return; // Success
             } else if (settings.showLockNotifications) {
-                toastr.warning(`Locked preset "${lockedPreset}" not found`, 'World Info Presets');
+                toastr.warning(`Locked preset "${escapeHtml(lockedPreset)}" not found`, 'World Info Presets');
                 return; // Preset not found, don't retry
             }
         }
@@ -533,7 +534,7 @@ async function checkAndApplyLocks() {
                 console.log('STWIL: Applying global default preset for unlocked character:', settings.globalDefaultPreset);
                 await activatePreset(defaultPreset);
                 if (settings.showLockNotifications) {
-                    toastr.info(`Applied global default preset "${settings.globalDefaultPreset}" for unlocked character`, 'World Info Presets');
+                    toastr.info(`Applied global default preset "${escapeHtml(settings.globalDefaultPreset)}" for unlocked character`, 'World Info Presets');
                 }
                 return;
             } else {
@@ -554,7 +555,7 @@ async function checkAndApplyLocks() {
 const activatePresetByName = async(name)=>{
     const preset = settings.presetList.find(it=>it.name.toLowerCase() == name.toLowerCase());
     if (!preset) {
-        toastr.warning(`Preset "${name}" not found`);
+        toastr.warning(`Preset "${escapeHtml(name)}" not found`);
         return;
     }
     await activatePreset(preset);
@@ -567,7 +568,7 @@ export const activatePreset = async(preset, skipLockCheck = false)=>{
         if (currentLock && preset?.name !== currentLock) {
             const shouldUpdate = await callPopup(
                 `<h3>Preset Lock Active</h3>
-                <p>This context is locked to preset "${currentLock}" but you're switching to "${preset?.name || 'None'}".</p>
+                <p>This context is locked to preset "${escapeHtml(currentLock)}" but you're switching to "${escapeHtml(preset?.name || 'None')}".</p>
                 <p>Do you want to update the lock to use the new preset?</p>`,
                 'confirm'
             );
@@ -624,7 +625,7 @@ export const activatePreset = async(preset, skipLockCheck = false)=>{
         } catch (error) {
             console.error(`STWIL: Error applying world info settings for preset "${preset.name}":`, error);
             if (settings.showLockNotifications) {
-                toastr.error(`Failed to apply world info settings for preset "${preset.name}"`, 'World Info Presets');
+                toastr.error(`Failed to apply world info settings for preset "${escapeHtml(preset.name)}"`, 'World Info Presets');
             }
         }
     }
@@ -740,7 +741,7 @@ async function showLockSettings() {
         contextLockHtml = `
             <label class="checkbox_label">
                 <input type="checkbox" id="groupLockCheckbox" ${groupLock ? 'checked' : ''}>
-                <span>Lock to group${context.groupName ? ` (${context.groupName})` : ''}</span>
+                <span>Lock to group${context.groupName ? ` (${escapeHtml(context.groupName)})` : ''}</span>
             </label>
         `;
     } else {
@@ -749,7 +750,7 @@ async function showLockSettings() {
         contextLockHtml = `
             <label class="checkbox_label">
                 <input type="checkbox" id="characterLockCheckbox" ${characterLock ? 'checked' : ''}>
-                <span>Lock to character${context.characterName ? ` (${context.characterName})` : ''}</span>
+                <span>Lock to character${context.characterName ? ` (${escapeHtml(context.characterName)})` : ''}</span>
             </label>
         `;
     }
@@ -757,7 +758,7 @@ async function showLockSettings() {
     const content = document.createElement('div');
     content.innerHTML = `
         <h3>Preset Locks</h3>
-        <p>Lock the current preset "${settings.presetName || 'None'}" to this context:</p>
+        <p>Lock the current preset "${escapeHtml(settings.presetName || 'None')}" to this context:</p>
         <div>
             ${contextLockHtml}
             <label class="checkbox_label">
@@ -801,7 +802,7 @@ async function showLockSettings() {
             }
 
             if (locks.length > 0) {
-                toastr.success(`Preset "${settings.presetName}" locked to ${locks.join(' and ')}`, 'World Info Presets');
+                toastr.success(`Preset "${escapeHtml(settings.presetName)}" locked to ${locks.join(' and ')}`, 'World Info Presets');
             } else {
                 toastr.info('All locks removed', 'World Info Presets');
             }
@@ -814,7 +815,7 @@ async function showSettings() {
     
     // Generate options for global default preset
     const presetOptions = settings.presetList
-        .map(preset => `<option value="${preset.name}" ${preset.name === settings.globalDefaultPreset ? 'selected' : ''}>${preset.name}</option>`)
+        .map(preset => `<option value="${escapeHtml(preset.name)}" ${preset.name === settings.globalDefaultPreset ? 'selected' : ''}>${escapeHtml(preset.name)}</option>`)
         .join('');
     
     content.innerHTML = `
@@ -1071,7 +1072,7 @@ const loadBook = async(name)=>{
         data.book = name;
         return data;
     } else {
-        toastr.warning(`Failed to load World Info book: ${name}`);
+        toastr.warning(`Failed to load World Info book: ${escapeHtml(name)}`);
         return null; // Return null on failure to prevent undefined behavior
     }
 };
@@ -1112,7 +1113,7 @@ const importGroupLocks = async(data)=>{
 
 const importGlobalDefault = async(data, presetName)=>{
     if (data.isGlobalDefault) {
-        const doImport = await callPopup(`<h3>This preset was exported as a global default. Set "${presetName}" as your global default?<h3>`, 'confirm');
+        const doImport = await callPopup(`<h3>This preset was exported as a global default. Set "${escapeHtml(presetName)}" as your global default?<h3>`, 'confirm');
         if (doImport) {
             settings.globalDefaultPreset = presetName;
             updateSelect();
@@ -1140,7 +1141,7 @@ const importSinglePreset = async(file)=>{
         let old = settings.presetList.find(it=>it.name.toLowerCase() == data.name.toLowerCase());
         while (old) {
             const popupText = `
-                <h3>Import World Info Preset: "${data.name}"</3>
+                <h3>Import World Info Preset: "${escapeHtml(data.name)}"</3>
                 <h4>
                     A preset by that name already exists. Change the name to import under a new name,
                     or keep the name to ovewrite the existing preset.
@@ -1148,7 +1149,7 @@ const importSinglePreset = async(file)=>{
             `;
             const newName = await callPopup(popupText, 'input', data.name);
             if (newName == data.name) {
-                const overwrite = await callPopup(`<h3>Overwrite World Info Preset "${newName}"?</h3>`, 'confirm');
+                const overwrite = await callPopup(`<h3>Overwrite World Info Preset "${escapeHtml(newName)}"?</h3>`, 'confirm');
                 if (overwrite) {
                     old.worldList = data.worldList; 
                     old.worldInfoSettings = data.worldInfoSettings ?? null;
@@ -1179,7 +1180,7 @@ const importSinglePreset = async(file)=>{
         updateSelect();
         saveSettingsDebounced();
     } catch (ex) {
-        toastr.error(`Failed to import "${file.name}":\n\n${ex.message}`);
+        toastr.error(`Failed to import "${escapeHtml(file.name)}":\n\n${escapeHtml(ex.message)}`);
     }
 };
 
@@ -1416,7 +1417,7 @@ const init = ()=>{
                         if (defaultPreset) {
                             await activatePreset(defaultPreset);
                             if (settings.showLockNotifications) {
-                                toastr.info(`Applied global default preset "${settings.globalDefaultPreset}"`, 'World Info Presets');
+                                toastr.info(`Applied global default preset "${escapeHtml(settings.globalDefaultPreset)}"`, 'World Info Presets');
                             }
                         } else {
                             // Global default preset not found, clear current preset
@@ -1540,7 +1541,7 @@ const init = ()=>{
                     // Create a container element for the popup's content
                     const content = document.createElement('div');
                     content.innerHTML = `
-                        <h3>Export World Info Preset: "${settings.presetName}"</h3>
+                        <h3>Export World Info Preset: "${escapeHtml(settings.presetName)}"</h3>
                         <div>
                             <label class="checkbox_label">
                                 <input type="checkbox" id="includeBooks" checked>
@@ -1618,7 +1619,7 @@ const init = ()=>{
                 btnDelete.title = 'Delete the current preset';
                 btnDelete.addEventListener('click', async()=>{
                     if (settings.presetName == '') return;
-                    const confirmed = await callPopup(`<h3>Delete World Info Preset "${settings.presetName}"?</h3>`, 'confirm');
+                    const confirmed = await callPopup(`<h3>Delete World Info Preset "${escapeHtml(settings.presetName)}"?</h3>`, 'confirm');
                     if (confirmed) {
                         const presetName = settings.presetName;
                         
@@ -1716,13 +1717,13 @@ const init = ()=>{
                 const popupText = `
                     <div style="text-align:left;">
                         <h3>World Info Renamed</h3>
-                        <p>It looks like you renamed the World Info book "${oldName}" to "${newName}".</p>
-                        <p>The following presets currently include the World Info book "${oldName}":</p>
+                        <p>It looks like you renamed the World Info book "${escapeHtml(oldName)}" to "${escapeHtml(newName)}".</p>
+                        <p>The following presets currently include the World Info book "${escapeHtml(oldName)}":</p>
                         <ul>
-                            ${presets.map(it=>`<li>${it.name}</li>`).join('')}
+                            ${presets.map(it=>`<li>${escapeHtml(it.name)}</li>`).join('')}
                         </ul>
                         <p>
-                            Do you want to update all ${presets.length} presets that include "<strong>${oldName}</strong>" to now include "<strong>${newName}</strong>" instead?
+                            Do you want to update all ${presets.length} presets that include "<strong>${escapeHtml(oldName)}</strong>" to now include "<strong>${escapeHtml(newName)}</strong>" instead?
                         </p>
                     </div>
                 `;

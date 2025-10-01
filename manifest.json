@@ -5,7 +5,7 @@
     "optional": [],
     "js": "index.js",
     "author": "aikohanasaki",
-    "version": "1.10.3",
+    "version": "1.10.4",
     "license": "AGPL-3.0",
     "homePage": "https://github.com/aikohanasaki/SSillyTavern-WorldInfoLocks",
     "auto_update": true,
