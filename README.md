@@ -1,13 +1,16 @@
-# World Info Locks (A SillyTavern Extension)
+# 🌎 World Info Locks (A SillyTavern Extension)
 
 World Info Locks is a comprehensive preset management system for SillyTavern's World Info functionality. Originally forked from [World Info Presets](https://github.com/LenAnderson/SillyTavern-WorldInfoPresets/), it has evolved into a powerful tool for managing lorebook configurations across different contexts.
+
+![The ST World Info Locks Interface](https://github.com/aikohanasaki/imagehost/blob/main/STWIL.png)
 
 ## 🌟 Key Features
 
 ### 📚 **World Info Presets**
-- **Save and Load Presets**: Create named presets that include both world info books and global settings
+- **Save and Load Presets**: Create named presets that include both world info books and activation settings
 - **Smart Book Management**: Automatically handles loading/unloading of multiple world info books
-- **Settings Preservation**: Captures and restores all world info configuration settings
+- **Activation Settings**: Optionally capture and restore world info activation settings (depth, budget, recursion, matching rules, etc.)
+- **Granular Settings Control**: Choose exactly which activation settings to include per preset
 - **CharLore Protection**: Intelligently preserves character-specific lore data when switching presets
 
 ### 🔒 **Advanced Locking System**
@@ -33,26 +36,24 @@ World Info Locks is a comprehensive preset management system for SillyTavern's W
 - **Live Updates**: Real-time UI updates when switching contexts
 - **Caching System**: Optimized performance with intelligent context caching
 
-## 🚀 Installation
-
-1. Download or clone this repository into your SillyTavern extensions folder:
-   ```
-   [SillyTavern]/public/scripts/extensions/SillyTavern-WorldInfoLocks/
-   ```
-
-2. Restart SillyTavern or reload the page
-
-3. The extension will appear in your World Info panel with a dropdown and action buttons
-
 ## 📖 Usage Guide
 
 ### Creating Your First Preset
 
-1. **Set up your World Info**: Select the world info books and configure settings as desired
+1. **Set up your World Info**: Select the world info books and configure activation settings as desired
 2. **Create Preset**: Click the ➕ button and give your preset a name
-3. **Activate Later**: Use the dropdown to switch between presets anytime
+3. **Choose Settings to Include**: Select which world info activation settings to save with this preset
+![World Activation choices (can be ignored)](https://github.com/aikohanasaki/imagehost/blob/main/STWIL%20WI%20settings.png)
+   - **Activation Settings**: Controls when and how entries are activated (depth, min activations, recursion)
+   - **Budget & Performance**: Memory usage and token limits
+   - **Text Matching**: Keyword matching behavior (case sensitivity, whole words)
+   - **Strategy & Scoring**: Activation priority and scoring rules
+   - Or choose to save no settings (books only)
+4. **Activate Later**: Use the dropdown to switch between presets anytime
 
 ### Setting Up Locks
+
+![Lock to character or chat](https://github.com/aikohanasaki/imagehost/blob/main/STWIL%20lock.png)
 
 1. **Select a Preset**: Choose the preset you want to lock
 2. **Open Lock Settings**: Click the 🔒 button
@@ -63,6 +64,8 @@ World Info Locks is a comprehensive preset management system for SillyTavern's W
 
 ### Configuring Global Settings
 
+![All the settings!](https://github.com/aikohanasaki/imagehost/blob/main/STWIL%20menu.png)
+
 1. **Open Settings**: Click the ⚙️ button
 2. **Set Global Default**: Choose a preset to apply when no locks are active
 3. **Configure Lock Behavior**:
@@ -72,6 +75,8 @@ World Info Locks is a comprehensive preset management system for SillyTavern's W
    - Toggle lock notifications
 
 ### Import/Export Workflow
+
+~[Exporting](https://github.com/aikohanasaki/imagehost/blob/main/STWIL%20export.png)
 
 **Exporting:**
 1. Select the preset to export
@@ -88,6 +93,18 @@ World Info Locks is a comprehensive preset management system for SillyTavern's W
 4. Choose whether to import included books and character locks
 
 ## 🎯 Advanced Features
+
+![World Info Activation Settings](https://github.com/aikohanasaki/imagehost/blob/main/STWIL%20WI.png)
+
+### World Info Activation Settings
+Each preset can optionally include world info activation settings that control how entries are activated:
+
+- **Activation Settings**: Scan depth, minimum activations, recursion behavior
+- **Budget & Performance**: Token budget, budget cap, overflow alerts
+- **Text Matching**: Case sensitivity, whole word matching, include character names
+- **Strategy & Scoring**: Character vs. global priority, group scoring behavior
+
+When creating or updating a preset, you can choose exactly which settings to include. Presets without settings will only manage book selection. When a preset with settings is activated, those settings are automatically applied.
 
 ### Book Rename Detection
 When you rename a world info book, the extension detects this change and offers to update all presets that reference the old name to use the new name instead.
