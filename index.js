@@ -5,6 +5,7 @@ import { executeSlashCommands, registerSlashCommand } from '../../../slash-comma
 import { importWorldInfo, world_info, getWorldInfoSettings } from '../../../world-info.js';
 import { selected_group, groups } from '../../../group-chats.js';
 import { escapeHtml } from '../../../utils.js';
+import { t } from '../../../i18n.js';
 
 // Context cache to avoid redundant character name lookups
 let cachedContext = null;
@@ -160,8 +161,8 @@ function validateSettingsApplied(expectedSettings, logPrefix = 'STWIL') {
 function getSettingsCategories() {
     return {
         activation: {
-            name: 'Activation Settings',
-            description: 'Controls when and how world info entries are activated',
+            name: t`Activation Settings`,
+            description: t`Controls when and how world info entries are activated`,
             settings: [
                 'world_info_depth',
                 'world_info_min_activations',
@@ -171,8 +172,8 @@ function getSettingsCategories() {
             ]
         },
         budget: {
-            name: 'Budget & Performance',
-            description: 'Controls memory usage and token limits',
+            name: t`Budget & Performance`,
+            description: t`Controls memory usage and token limits`,
             settings: [
                 'world_info_budget',
                 'world_info_budget_cap',
@@ -180,8 +181,8 @@ function getSettingsCategories() {
             ]
         },
         matching: {
-            name: 'Text Matching',
-            description: 'Controls how keywords are matched in text',
+            name: t`Text Matching`,
+            description: t`Controls how keywords are matched in text`,
             settings: [
                 'world_info_case_sensitive',
                 'world_info_match_whole_words',
@@ -189,8 +190,8 @@ function getSettingsCategories() {
             ]
         },
         strategy: {
-            name: 'Strategy & Scoring',
-            description: 'Controls activation priority and scoring behavior',
+            name: t`Strategy & Scoring`,
+            description: t`Controls activation priority and scoring behavior`,
             settings: [
                 'world_info_character_strategy',
                 'world_info_use_group_scoring'
@@ -200,10 +201,11 @@ function getSettingsCategories() {
 }
 
 function generatePresetTooltip(preset) {
-    let tooltip = `Books: ${preset.worldList.join(', ') || 'None'}`;
+    const booksList = preset.worldList.join(', ') || t`None`;
+    let tooltip = t`Books: ${booksList}`;
 
     if (preset.worldInfoSettings && Object.keys(preset.worldInfoSettings).length > 0) {
-        tooltip += '\n\nWorld Info Settings:';
+        tooltip += `\n\n${t`World Info Settings:`}`;
 
         const categories = getSettingsCategories();
         const settingsByCategory = {};
@@ -239,15 +241,15 @@ function generatePresetTooltip(preset) {
         );
 
         if (uncategorizedSettings.length > 0) {
-            tooltip += '\n• Other:';
+            tooltip += `\n• ${t`Other:`}`;
             for (const setting of uncategorizedSettings) {
                 tooltip += `\n  ${setting.replace('world_info_', '')}: ${preset.worldInfoSettings[setting]}`;
             }
         }
     } else if (preset.worldInfoSettings === null) {
-        tooltip += '\n\nNo world info settings included';
+        tooltip += `\n\n${t`No world info settings included`}`;
     } else {
-        tooltip += '\n\nNo world info settings configured';
+        tooltip += `\n\n${t`No world info settings configured`}`;
     }
 
     return tooltip;
@@ -271,7 +273,7 @@ function migratePresetsToIncludeSettings() {
         console.log(`STWIL: Migration complete. Updated ${migrated} presets to include global settings`);
 
         if (settings.showLockNotifications) {
-            toastr.info(`Migrated ${migrated} presets to include global world info settings`, 'World Info Presets');
+            toastr.info(t`Migrated ${migrated} presets to include global world info settings`, t`World Info Presets`);
         }
     }
 
@@ -323,7 +325,7 @@ function migrateGroupLocksFromCharacterLocks() {
         console.log(`STWIL: Group lock migration complete. Migrated ${migrated} group locks from character storage`);
 
         if (settings.showLockNotifications) {
-            toastr.info(`Migrated ${migrated} group locks to use group IDs instead of names`, 'World Info Presets');
+            toastr.info(t`Migrated ${migrated} group locks to use group IDs instead of names`, t`World Info Presets`);
         }
     }
 
@@ -502,11 +504,11 @@ async function checkAndApplyLocks() {
                     } else if (context.isGroupChat) {
                         lockType = 'group';
                     }
-                    toastr.info(`Applied locked preset "${escapeHtml(lockedPreset)}" for ${lockType}`, 'World Info Presets');
+                    toastr.info(t`Applied locked preset "${escapeHtml(lockedPreset)}" for ${lockType}`, t`World Info Presets`);
                 }
                 return; // Success
             } else if (settings.showLockNotifications) {
-                toastr.warning(`Locked preset "${escapeHtml(lockedPreset)}" not found`, 'World Info Presets');
+                toastr.warning(t`Locked preset "${escapeHtml(lockedPreset)}" not found`, t`World Info Presets`);
                 return; // Preset not found, don't retry
             }
         }
@@ -534,7 +536,7 @@ async function checkAndApplyLocks() {
                 console.log('STWIL: Applying global default preset for unlocked character:', settings.globalDefaultPreset);
                 await activatePreset(defaultPreset);
                 if (settings.showLockNotifications) {
-                    toastr.info(`Applied global default preset "${escapeHtml(settings.globalDefaultPreset)}" for unlocked character`, 'World Info Presets');
+                    toastr.info(t`Applied global default preset "${escapeHtml(settings.globalDefaultPreset)}" for unlocked character`, t`World Info Presets`);
                 }
                 return;
             } else {
@@ -555,7 +557,7 @@ async function checkAndApplyLocks() {
 const activatePresetByName = async(name)=>{
     const preset = settings.presetList.find(it=>it.name.toLowerCase() == name.toLowerCase());
     if (!preset) {
-        toastr.warning(`Preset "${escapeHtml(name)}" not found`);
+        toastr.warning(t`Preset "${escapeHtml(name)}" not found`);
         return;
     }
     await activatePreset(preset);
@@ -566,12 +568,14 @@ export const activatePreset = async(preset, skipLockCheck = false)=>{
     if (!skipLockCheck && hasAnyLocks()) {
         const currentLock = getLockForContext();
         if (currentLock && preset?.name !== currentLock) {
-            const shouldUpdate = await callPopup(
-                `<h3>Preset Lock Active</h3>
-                <p>This context is locked to preset "${escapeHtml(currentLock)}" but you're switching to "${escapeHtml(preset?.name || 'None')}".</p>
-                <p>Do you want to update the lock to use the new preset?</p>`,
-                'confirm'
-            );
+            const newName = preset?.name || t`None`;
+            const content = document.createElement('div');
+            content.innerHTML = `
+                <h3>${t`Preset Lock Active`}</h3>
+                <p>${t`This context is locked to preset "${escapeHtml(currentLock)}" but you're switching to "${escapeHtml(newName)}".`}</p>
+                <p>${t`Do you want to update the lock to use the new preset?`}</p>
+            `;
+            const shouldUpdate = await callPopup(content, 'confirm');
             
             if (shouldUpdate) {
                 await updateLocksForContext(preset?.name);
@@ -614,9 +618,10 @@ export const activatePreset = async(preset, skipLockCheck = false)=>{
                 });
 
                 if (settings.showLockNotifications && settingsResult.failedSettings.length > 0) {
+                    const failedList = settingsResult.failedSettings.join(', ');
                     toastr.warning(
-                        `Some world info settings failed to apply: ${settingsResult.failedSettings.join(', ')}`,
-                        'World Info Presets'
+                        t`Some world info settings failed to apply: ${failedList}`,
+                        t`World Info Presets`
                     );
                 }
             } else {
@@ -625,7 +630,7 @@ export const activatePreset = async(preset, skipLockCheck = false)=>{
         } catch (error) {
             console.error(`STWIL: Error applying world info settings for preset "${preset.name}":`, error);
             if (settings.showLockNotifications) {
-                toastr.error(`Failed to apply world info settings for preset "${escapeHtml(preset.name)}"`, 'World Info Presets');
+                toastr.error(t`Failed to apply world info settings for preset "${escapeHtml(preset.name)}"`, t`World Info Presets`);
             }
         }
     }
@@ -663,8 +668,8 @@ const updateSelect = ()=>{
     const blankOption = presetSelect.children[0];
     if (blankOption && blankOption.value === '') {
         blankOption.textContent = settings.globalDefaultPreset ?
-            `--- Default: ${settings.globalDefaultPreset} ---` :
-            '--- Pick a Preset ---';
+            t`--- Default: ${settings.globalDefaultPreset} ---` :
+            t`--- Pick a Preset ---`;
     }
 
     // Get all option elements (excluding the blank option)
@@ -741,7 +746,7 @@ async function showLockSettings() {
         contextLockHtml = `
             <label class="checkbox_label">
                 <input type="checkbox" id="groupLockCheckbox" ${groupLock ? 'checked' : ''}>
-                <span>Lock to group${context.groupName ? ` (${escapeHtml(context.groupName)})` : ''}</span>
+                <span>${t`Lock to group`}${context.groupName ? ` (${escapeHtml(context.groupName)})` : ''}</span>
             </label>
         `;
     } else {
@@ -750,20 +755,21 @@ async function showLockSettings() {
         contextLockHtml = `
             <label class="checkbox_label">
                 <input type="checkbox" id="characterLockCheckbox" ${characterLock ? 'checked' : ''}>
-                <span>Lock to character${context.characterName ? ` (${escapeHtml(context.characterName)})` : ''}</span>
+                <span>${t`Lock to character`}${context.characterName ? ` (${escapeHtml(context.characterName)})` : ''}</span>
             </label>
         `;
     }
 
     const content = document.createElement('div');
+    const presetNameHtml = settings.presetName || t`None`;
     content.innerHTML = `
-        <h3>Preset Locks</h3>
-        <p>Lock the current preset "${escapeHtml(settings.presetName || 'None')}" to this context:</p>
+        <h3>${t`Preset Locks`}</h3>
+        <p>${t`Lock the current preset "${escapeHtml(presetNameHtml)}" to this context:`}</p>
         <div>
             ${contextLockHtml}
             <label class="checkbox_label">
                 <input type="checkbox" id="chatLockCheckbox" ${chatLock ? 'checked' : ''}>
-                <span>Lock to chat</span>
+                <span>${t`Lock to chat`}</span>
             </label>
         </div>
     `;
@@ -791,20 +797,21 @@ async function showLockSettings() {
 
         if (settings.showLockNotifications) {
             const locks = [];
-            if (chatLockChecked) locks.push('chat');
+            if (chatLockChecked) locks.push(t`chat`);
 
             if (context.isGroupChat) {
                 const groupLockChecked = content.querySelector('#groupLockCheckbox')?.checked || false;
-                if (groupLockChecked) locks.push('group');
+                if (groupLockChecked) locks.push(t`group`);
             } else {
                 const characterLockChecked = content.querySelector('#characterLockCheckbox')?.checked || false;
-                if (characterLockChecked) locks.push('character');
+                if (characterLockChecked) locks.push(t`character`);
             }
 
             if (locks.length > 0) {
-                toastr.success(`Preset "${escapeHtml(settings.presetName)}" locked to ${locks.join(' and ')}`, 'World Info Presets');
+                const locksText = locks.join(', ');
+                toastr.success(t`Preset "${escapeHtml(settings.presetName)}" locked to ${locksText}`, t`World Info Presets`);
             } else {
-                toastr.info('All locks removed', 'World Info Presets');
+                toastr.info(t`All locks removed`, t`World Info Presets`);
             }
         }
     }
@@ -819,36 +826,36 @@ async function showSettings() {
         .join('');
     
     content.innerHTML = `
-        <h3>World Info Preset Settings</h3>
+        <h3>${t`World Info Preset Settings`}</h3>
         <div>
             <div class="marginBot10">
-                <h4 class="marginBot5">Global Default Preset:</h4>
+                <h4 class="marginBot5">${t`Global Default Preset:`}</h4>
                 <select id="globalDefaultPreset">
-                    <option value="">None</option>
+                    <option value="">${t`None`}</option>
                     ${presetOptions}
                 </select>
-                <small style="color: var(--grey50);">This preset will be applied when no specific preset is selected and no locks are active.</small>
+                <small style="color: var(--grey50);">${t`This preset will be applied when no specific preset is selected and no locks are active.`}</small>
             </div>
             <hr class="marginTopBot5">
             <label class="checkbox_label">
                 <input type="checkbox" id="enableCharacterLocks" ${settings.enableCharacterLocks ? 'checked' : ''}>
-                <span>Enable character locks</span>
+                <span>${t`Enable character locks`}</span>
             </label>
             <label class="checkbox_label">
                 <input type="checkbox" id="enableGroupLocks" ${settings.enableGroupLocks ? 'checked' : ''}>
-                <span>Enable group locks</span>
+                <span>${t`Enable group locks`}</span>
             </label>
             <label class="checkbox_label">
                 <input type="checkbox" id="enableChatLocks" ${settings.enableChatLocks ? 'checked' : ''}>
-                <span>Enable chat locks</span>
+                <span>${t`Enable chat locks`}</span>
             </label>
             <label class="checkbox_label">
                 <input type="checkbox" id="preferChatOverCharacterLocks" ${settings.preferChatOverCharacterLocks ? 'checked' : ''}>
-                <span>Prefer chat locks over character/group locks</span>
+                <span>${t`Prefer chat locks over character/group locks`}</span>
             </label>
             <label class="checkbox_label">
                 <input type="checkbox" id="showLockNotifications" ${settings.showLockNotifications ? 'checked' : ''}>
-                <span>Show lock notifications</span>
+                <span>${t`Show lock notifications`}</span>
             </label>
         </div>
     `;
@@ -1072,14 +1079,16 @@ const loadBook = async(name)=>{
         data.book = name;
         return data;
     } else {
-        toastr.warning(`Failed to load World Info book: ${escapeHtml(name)}`);
+        toastr.warning(t`Failed to load World Info book: ${escapeHtml(name)}`);
         return null; // Return null on failure to prevent undefined behavior
     }
 };
 
 const importBooks = async(data)=>{
     if (data.books && Object.keys(data.books).length > 0) {
-        const doImport = await callPopup(`<h3>The preset contains World Info books. Import the books?<h3>`, 'confirm');
+        const content = document.createElement('div');
+        content.innerHTML = `<h3>${t`The preset contains World Info books. Import the books?`}</h3>`;
+        const doImport = await callPopup(content, 'confirm');
         if (doImport) {
             for (const key of Object.keys(data.books)) {
                 const book = data.books[key];
@@ -1093,7 +1102,9 @@ const importBooks = async(data)=>{
 
 const importCharacterLocks = async(data)=>{
     if (data.characterLocks && Object.keys(data.characterLocks).length > 0) {
-        const doImport = await callPopup(`<h3>The preset contains character locks. Import the character locks?<h3>`, 'confirm');
+        const content = document.createElement('div');
+        content.innerHTML = `<h3>${t`The preset contains character locks. Import the character locks?`}</h3>`;
+        const doImport = await callPopup(content, 'confirm');
         if (doImport) {
             Object.assign(settings.characterLocks, data.characterLocks);
             saveSettingsDebounced();
@@ -1103,7 +1114,9 @@ const importCharacterLocks = async(data)=>{
 
 const importGroupLocks = async(data)=>{
     if (data.groupLocks && Object.keys(data.groupLocks).length > 0) {
-        const doImport = await callPopup(`<h3>The preset contains group locks. Import the group locks?<h3>`, 'confirm');
+        const content = document.createElement('div');
+        content.innerHTML = `<h3>${t`The preset contains group locks. Import the group locks?`}</h3>`;
+        const doImport = await callPopup(content, 'confirm');
         if (doImport) {
             Object.assign(settings.groupLocks, data.groupLocks);
             saveSettingsDebounced();
@@ -1113,7 +1126,9 @@ const importGroupLocks = async(data)=>{
 
 const importGlobalDefault = async(data, presetName)=>{
     if (data.isGlobalDefault) {
-        const doImport = await callPopup(`<h3>This preset was exported as a global default. Set "${escapeHtml(presetName)}" as your global default?<h3>`, 'confirm');
+        const content = document.createElement('div');
+        content.innerHTML = `<h3>${t`This preset was exported as a global default. Set "${escapeHtml(presetName)}" as your global default?`}</h3>`;
+        const doImport = await callPopup(content, 'confirm');
         if (doImport) {
             settings.globalDefaultPreset = presetName;
             updateSelect();
@@ -1140,16 +1155,16 @@ const importSinglePreset = async(file)=>{
         const data = JSON.parse(text);
         let old = settings.presetList.find(it=>it.name.toLowerCase() == data.name.toLowerCase());
         while (old) {
-            const popupText = `
-                <h3>Import World Info Preset: "${escapeHtml(data.name)}"</3>
-                <h4>
-                    A preset by that name already exists. Change the name to import under a new name,
-                    or keep the name to ovewrite the existing preset.
-                </h4>
+            const importNameContent = document.createElement('div');
+            importNameContent.innerHTML = `
+                <h3>${t`Import World Info Preset: "${escapeHtml(data.name)}"`}</h3>
+                <h4>${t`A preset by that name already exists. Change the name to import under a new name, or keep the name to ovewrite the existing preset.`}</h4>
             `;
-            const newName = await callPopup(popupText, 'input', data.name);
+            const newName = await callPopup(importNameContent, 'input', data.name);
             if (newName == data.name) {
-                const overwrite = await callPopup(`<h3>Overwrite World Info Preset "${escapeHtml(newName)}"?</h3>`, 'confirm');
+                const overwriteContent = document.createElement('div');
+                overwriteContent.innerHTML = `<h3>${t`Overwrite World Info Preset "${escapeHtml(newName)}"?`}</h3>`;
+                const overwrite = await callPopup(overwriteContent, 'confirm');
                 if (overwrite) {
                     old.worldList = data.worldList; 
                     old.worldInfoSettings = data.worldInfoSettings ?? null;
@@ -1180,7 +1195,7 @@ const importSinglePreset = async(file)=>{
         updateSelect();
         saveSettingsDebounced();
     } catch (ex) {
-        toastr.error(`Failed to import "${escapeHtml(file.name)}":\n\n${escapeHtml(ex.message)}`);
+        toastr.error(t`Failed to import "${escapeHtml(file.name)}":\n\n${escapeHtml(ex.message)}`);
     }
 };
 
@@ -1191,16 +1206,16 @@ async function showSettingsSelectionDialog() {
     const content = document.createElement('div');
     // No custom className needed - let ST handle popup content styling
     content.innerHTML = `
-        <h3>World Info Settings Inclusion</h3>
-        <p>Choose which global world info settings to include in this preset:</p>
+        <h3>${t`World Info Settings Inclusion`}</h3>
+        <p>${t`OPTIONAL: Choose which global world info settings to include in this preset:`}</p>
 
         <div class="marginBot10">
             <label class="checkbox_label">
                 <input type="checkbox" id="includeSettingsToggle" checked>
-                <span><strong>Include world info settings in preset</strong></span>
+                <span><strong>${t`Include world info settings in preset`}</strong></span>
             </label>
             <small class="displayBlock indent20p" style="color: var(--grey50);">
-                When enabled, switching to this preset will also apply the selected global settings.
+                ${t`When enabled, switching to this preset will also apply the selected global settings.`}
             </small>
         </div>
 
@@ -1211,7 +1226,7 @@ async function showSettingsSelectionDialog() {
                     <h5>${category.name}</h5>
                     <label class="checkbox_label">
                         <input type="checkbox" class="categoryToggle" data-category="${catKey}" checked>
-                        <span>Include this category</span>
+                        <span>${t`Include this category`}</span>
                     </label>
                     <p class="marginTopBot5" style="color: var(--grey70); font-size: 0.9em;">${category.description}</p>
                     <div class="indent20p">
@@ -1259,7 +1274,7 @@ async function showSettingsSelectionDialog() {
 
     const customButtons = [
         {
-            text: 'Select All',
+            text: t`Select All`,
             classes: ['menu_button'],
             action: () => {
                 content.querySelectorAll('.categoryToggle, .settingCheckbox').forEach(cb => cb.checked = true);
@@ -1271,7 +1286,7 @@ async function showSettingsSelectionDialog() {
             }
         },
         {
-            text: 'Select None',
+            text: t`Select None`,
             classes: ['menu_button'],
             action: () => {
                 content.querySelectorAll('.categoryToggle, .settingCheckbox').forEach(cb => cb.checked = false);
@@ -1285,8 +1300,8 @@ async function showSettingsSelectionDialog() {
     ];
 
     const popup = new Popup(content, POPUP_TYPE.CONFIRM, '', {
-        okButton: 'OK',
-        cancelButton: 'Cancel',
+        okButton: t`OK`,
+        cancelButton: t`Cancel`,
         customButtons: customButtons,
         allowVerticalScrolling: true
     });
@@ -1308,7 +1323,9 @@ async function showSettingsSelectionDialog() {
 }
 
 const createPreset = async()=>{
-    const name = await callPopup('<h3>Preset Name:</h3>', 'input', settings.presetName);
+    const nameContent = document.createElement('div');
+    nameContent.innerHTML = `<h3>${t`Preset Name:`}</h3>`;
+    const name = await callPopup(nameContent, 'input', settings.presetName);
     if (!name) return;
 
     // Show settings inclusion dialog
@@ -1396,8 +1413,8 @@ const init = ()=>{
             const blank = document.createElement('option'); {
                 blank.value = '';
                 blank.textContent = settings.globalDefaultPreset ? 
-                    `--- Default: ${settings.globalDefaultPreset} ---` : 
-                    '--- Pick a Preset ---';
+                    t`--- Default: ${settings.globalDefaultPreset} ---` : 
+                    t`--- Pick a Preset ---`;
                 presetSelect.append(blank);
             }
             for (const preset of settings.presetList.toSorted((a,b)=>a.name.toLowerCase().localeCompare(b.name.toLowerCase()))) {
@@ -1417,7 +1434,7 @@ const init = ()=>{
                         if (defaultPreset) {
                             await activatePreset(defaultPreset);
                             if (settings.showLockNotifications) {
-                                toastr.info(`Applied global default preset "${escapeHtml(settings.globalDefaultPreset)}"`, 'World Info Presets');
+                                toastr.info(t`Applied global default preset "${escapeHtml(settings.globalDefaultPreset)}"`, t`World Info Presets`);
                             }
                         } else {
                             // Global default preset not found, clear current preset
@@ -1440,7 +1457,7 @@ const init = ()=>{
             // Lock button
             lockButton = document.createElement('div'); {
                 lockButton.classList.add('menu_button', 'fa-solid', 'fa-lock');
-                lockButton.title = 'Preset locks';
+                lockButton.title = t`Preset locks`;
                 lockButton.addEventListener('click', showLockSettings);
                 actions.append(lockButton);
             }
@@ -1448,17 +1465,19 @@ const init = ()=>{
             // Settings button
             settingsButton = document.createElement('div'); {
                 settingsButton.classList.add('menu_button', 'fa-solid', 'fa-gear');
-                settingsButton.title = 'Settings';
+                settingsButton.title = t`Settings`;
                 settingsButton.addEventListener('click', showSettings);
                 actions.append(settingsButton);
             }
             
             const btnRename = document.createElement('div'); {
                 btnRename.classList.add('menu_button', 'fa-solid', 'fa-pencil');
-                btnRename.title = 'Rename current preset';
+                btnRename.title = t`Rename current preset`;
                 btnRename.addEventListener('click', async()=>{
                     const oldName = settings.presetName;
-                    const name = await callPopup('<h3>Rename Preset:</h3>', 'input', settings.presetName);
+                    const renameContent = document.createElement('div');
+                    renameContent.innerHTML = `<h3>${t`Rename Preset:`}</h3>`;
+                    const name = await callPopup(renameContent, 'input', settings.presetName);
                     if (!name || name === oldName) return;
                     
                     // Update chat lock if it matches
@@ -1495,7 +1514,7 @@ const init = ()=>{
             }
             const btnUpdate = document.createElement('div'); {
                 btnUpdate.classList.add('menu_button', 'fa-solid', 'fa-save');
-                btnUpdate.title = 'Update current preset';
+                btnUpdate.title = t`Update current preset`;
                 btnUpdate.addEventListener('click', ()=>{
                     if (!settings.preset) return createPreset();
                     settings.preset.worldList = [...world_info.globalSelect];
@@ -1506,13 +1525,13 @@ const init = ()=>{
             }
             const btnCreate = document.createElement('div'); {
                 btnCreate.classList.add('menu_button', 'fa-solid', 'fa-file-circle-plus');
-                btnCreate.title = 'Save current preset as';
+                btnCreate.title = t`Save current preset as`;
                 btnCreate.addEventListener('click', async()=>createPreset());
                 actions.append(btnCreate);
             }
             const btnRestore = document.createElement('div'); {
                 btnRestore.classList.add('menu_button', 'fa-solid', 'fa-rotate-left');
-                btnRestore.title = 'Restore current preset';
+                btnRestore.title = t`Restore current preset`;
                 btnRestore.addEventListener('click', ()=>activatePreset(settings.preset, true));
                 actions.append(btnRestore);
             }
@@ -1525,34 +1544,34 @@ const init = ()=>{
             }
             const btnImport = document.createElement('div'); {
                 btnImport.classList.add('menu_button', 'fa-solid', 'fa-file-import');
-                btnImport.title = 'Import preset';
+                btnImport.title = t`Import preset`;
                 btnImport.addEventListener('click', ()=>importFile.click());
                 actions.append(btnImport);
             }
             const btnExport = document.createElement('div'); {
                 btnExport.classList.add('menu_button', 'fa-solid', 'fa-file-export');
-                btnExport.title = 'Export the current preset';
+                btnExport.title = t`Export the current preset`;
                 btnExport.addEventListener('click', async () => {
                     if (!settings.preset) {
-                        toastr.warning('No preset selected to export');
+                        toastr.warning(t`No preset selected to export`);
                         return;
                     }
 
                     // Create a container element for the popup's content
                     const content = document.createElement('div');
                     content.innerHTML = `
-                        <h3>Export World Info Preset: "${escapeHtml(settings.presetName)}"</h3>
+                        <h3>${t`Export World Info Preset: "${escapeHtml(settings.presetName)}"`}</h3>
                         <div>
                             <label class="checkbox_label">
                                 <input type="checkbox" id="includeBooks" checked>
-                                <span>Include books' contents in export</span>
+                                <span>${t`Include books' contents in export`}</span>
                             </label>
                             <label class="checkbox_label">
                                 <input type="checkbox" id="useCurrentSelection">
-                                <span>Use currently selected books instead of preset definition</span>
+                                <span>${t`Use currently selected books instead of preset definition`}</span>
                             </label>
                         </div>
-                        <p><small>By default, exports the preset's defined book list. Check the second option to export your current working selection instead.</small></p>
+                        <p><small>${t`By default, exports the preset's defined book list. Check the second option to export your current working selection instead.`}</small></p>
                     `;
 
                     // Pass the element to the popup function
@@ -1616,10 +1635,12 @@ const init = ()=>{
             }
             const btnDelete = document.createElement('div'); {
                 btnDelete.classList.add('menu_button', 'redWarningBG', 'fa-solid', 'fa-trash-can');
-                btnDelete.title = 'Delete the current preset';
+                btnDelete.title = t`Delete the current preset`;
                 btnDelete.addEventListener('click', async()=>{
                     if (settings.presetName == '') return;
-                    const confirmed = await callPopup(`<h3>Delete World Info Preset "${escapeHtml(settings.presetName)}"?</h3>`, 'confirm');
+                    const deleteContent = document.createElement('div');
+                    deleteContent.innerHTML = `<h3>${t`Delete World Info Preset "${escapeHtml(settings.presetName)}"?`}</h3>`;
+                    const confirmed = await callPopup(deleteContent, 'confirm');
                     if (confirmed) {
                         const presetName = settings.presetName;
                         
@@ -1716,14 +1737,14 @@ const init = ()=>{
                 // oldName has probably been renamed to newName
                 const popupText = `
                     <div style="text-align:left;">
-                        <h3>World Info Renamed</h3>
-                        <p>It looks like you renamed the World Info book "${escapeHtml(oldName)}" to "${escapeHtml(newName)}".</p>
-                        <p>The following presets currently include the World Info book "${escapeHtml(oldName)}":</p>
+                        <h3>${t`World Info Renamed`}</h3>
+                        <p>${t`It looks like you renamed the World Info book "${escapeHtml(oldName)}" to "${escapeHtml(newName)}".`}</p>
+                        <p>${t`The following presets currently include the World Info book "${escapeHtml(oldName)}":`}</p>
                         <ul>
                             ${presets.map(it=>`<li>${escapeHtml(it.name)}</li>`).join('')}
                         </ul>
                         <p>
-                            Do you want to update all ${presets.length} presets that include "<strong>${escapeHtml(oldName)}</strong>" to now include "<strong>${escapeHtml(newName)}</strong>" instead?
+                            ${t`Do you want to update all ${presets.length} presets that include`} "<strong>${escapeHtml(oldName)}</strong>" ${t`to now include`} "<strong>${escapeHtml(newName)}</strong>" ${t`instead?`}
                         </p>
                     </div>
                 `;
@@ -1752,7 +1773,7 @@ registerSlashCommand('wipreset',
         activatePresetByName(value);
     },
     [],
-    '<span class="monospace">(optional preset name)</span> – Activate a World Info preset. Leave name blank to deactivate current preset (unload all WI books).',
+    t`<span class="monospace">(optional preset name)</span> – Activate a World Info preset. Leave name blank to deactivate current preset (unload all WI books).`,
     true,
     true,
 );
