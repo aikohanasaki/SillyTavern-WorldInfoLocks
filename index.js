@@ -5,12 +5,46 @@ import { executeSlashCommands, registerSlashCommand } from '../../../slash-comma
 import { importWorldInfo, world_info, getWorldInfoSettings } from '../../../world-info.js';
 import { selected_group, groups } from '../../../group-chats.js';
 import { escapeHtml } from '../../../utils.js';
-import { t } from '../../../i18n.js';
+import { addLocaleData, getCurrentLocale, translate, applyLocale } from '../../../i18n.js';
 
 // Context cache to avoid redundant character name lookups
 let cachedContext = null;
 let cacheTimestamp = 0;
 const CACHE_DURATION_MS = 100; // Cache valid for 100ms
+
+// STWIL i18n adapter: load extension locale and key-based interpolation
+const EXT_BASE_URL = new URL('.', import.meta.url);
+async function loadStwilLocale() {
+    try {
+        const current = String(getCurrentLocale() || 'en').toLowerCase();
+        const base = current.split('-')[0];
+        const candidates = [current, base, 'en'];
+        for (const code of candidates) {
+            try {
+                const url = new URL(`./locales/${code}.json`, EXT_BASE_URL);
+                const res = await fetch(url);
+                if (res && res.ok) {
+                    const data = await res.json();
+                    addLocaleData(current, data);
+                    break; // first available wins
+                }
+            } catch (e) {
+                // try next candidate
+            }
+        }
+        try { applyLocale(); } catch (e) { /* noop */ }
+    } catch (e) {
+        console.warn('[STWIL] i18n load failed:', e);
+    }
+}
+/**
+ * Interpolate a translation string by stable key using ${index} placeholders.
+ * Example: tKey('stwil.toast.appliedGlobalDefault', 'Applied global default preset "${0}"', name)
+ */
+function tKey(key, fallback, ...values) {
+    const template = translate(fallback, key);
+    return template.replace(/\$\{(\d+)\}/g, (_, i) => String(values[i] ?? ''));
+}
 
 export class Settings {
     static from(props) {
@@ -161,8 +195,8 @@ function validateSettingsApplied(expectedSettings, logPrefix = 'STWIL') {
 function getSettingsCategories() {
     return {
         activation: {
-            name: t`Activation Settings`,
-            description: t`Controls when and how world info entries are activated`,
+            name: translate('Activation Settings', 'stwil.settings.category.activation.name'),
+            description: translate('Controls when and how world info entries are activated', 'stwil.settings.category.activation.desc'),
             settings: [
                 'world_info_depth',
                 'world_info_min_activations',
@@ -172,8 +206,8 @@ function getSettingsCategories() {
             ]
         },
         budget: {
-            name: t`Budget & Performance`,
-            description: t`Controls memory usage and token limits`,
+            name: translate('Budget & Performance', 'stwil.settings.category.budget.name'),
+            description: translate('Controls memory usage and token limits', 'stwil.settings.category.budget.desc'),
             settings: [
                 'world_info_budget',
                 'world_info_budget_cap',
@@ -181,8 +215,8 @@ function getSettingsCategories() {
             ]
         },
         matching: {
-            name: t`Text Matching`,
-            description: t`Controls how keywords are matched in text`,
+            name: translate('Text Matching', 'stwil.settings.category.matching.name'),
+            description: translate('Controls how keywords are matched in text', 'stwil.settings.category.matching.desc'),
             settings: [
                 'world_info_case_sensitive',
                 'world_info_match_whole_words',
@@ -190,8 +224,8 @@ function getSettingsCategories() {
             ]
         },
         strategy: {
-            name: t`Strategy & Scoring`,
-            description: t`Controls activation priority and scoring behavior`,
+            name: translate('Strategy & Scoring', 'stwil.settings.category.strategy.name'),
+            description: translate('Controls activation priority and scoring behavior', 'stwil.settings.category.strategy.desc'),
             settings: [
                 'world_info_character_strategy',
                 'world_info_use_group_scoring'
@@ -201,11 +235,11 @@ function getSettingsCategories() {
 }
 
 function generatePresetTooltip(preset) {
-    const booksList = preset.worldList.join(', ') || t`None`;
-    let tooltip = t`Books: ${booksList}`;
+    const booksList = preset.worldList.join(', ') || translate('None', 'stwil.common.none');
+    let tooltip = tKey('stwil.tooltip.booksList', 'Books: ${0}', booksList);
 
     if (preset.worldInfoSettings && Object.keys(preset.worldInfoSettings).length > 0) {
-        tooltip += `\n\n${t`World Info Settings:`}`;
+        tooltip += `\n\n${translate('World Info Settings:', 'stwil.tooltip.worldInfoSettings')}`;
 
         const categories = getSettingsCategories();
         const settingsByCategory = {};
@@ -241,15 +275,15 @@ function generatePresetTooltip(preset) {
         );
 
         if (uncategorizedSettings.length > 0) {
-            tooltip += `\n• ${t`Other:`}`;
+            tooltip += `\n• ${translate('Other:', 'stwil.tooltip.other')}`;
             for (const setting of uncategorizedSettings) {
                 tooltip += `\n  ${setting.replace('world_info_', '')}: ${preset.worldInfoSettings[setting]}`;
             }
         }
     } else if (preset.worldInfoSettings === null) {
-        tooltip += `\n\n${t`No world info settings included`}`;
+        tooltip += `\n\n${translate('No world info settings included', 'stwil.tooltip.noSettingsIncluded')}`;
     } else {
-        tooltip += `\n\n${t`No world info settings configured`}`;
+        tooltip += `\n\n${translate('No world info settings configured', 'stwil.tooltip.noSettingsConfigured')}`;
     }
 
     return tooltip;
@@ -273,7 +307,10 @@ function migratePresetsToIncludeSettings() {
         console.log(`STWIL: Migration complete. Updated ${migrated} presets to include global settings`);
 
         if (settings.showLockNotifications) {
-            toastr.info(t`Migrated ${migrated} presets to include global world info settings`, t`World Info Presets`);
+            toastr.info(
+                tKey('stwil.toast.migratedPresets', 'Migrated ${0} presets to include global world info settings', migrated),
+                translate('World Info Presets', 'stwil.title')
+            );
         }
     }
 
@@ -325,7 +362,10 @@ function migrateGroupLocksFromCharacterLocks() {
         console.log(`STWIL: Group lock migration complete. Migrated ${migrated} group locks from character storage`);
 
         if (settings.showLockNotifications) {
-            toastr.info(t`Migrated ${migrated} group locks to use group IDs instead of names`, t`World Info Presets`);
+            toastr.info(
+                tKey('stwil.toast.migratedGroupLocks', 'Migrated ${0} group locks to use group IDs instead of names', migrated),
+                translate('World Info Presets', 'stwil.title')
+            );
         }
     }
 
@@ -504,11 +544,17 @@ async function checkAndApplyLocks() {
                     } else if (context.isGroupChat) {
                         lockType = 'group';
                     }
-                    toastr.info(t`Applied locked preset "${escapeHtml(lockedPreset)}" for ${lockType}`, t`World Info Presets`);
+                    toastr.info(
+                        tKey('stwil.toast.appliedLockedPreset', 'Applied locked preset "${0}" for ${1}', escapeHtml(lockedPreset), lockType),
+                        translate('World Info Presets', 'stwil.title')
+                    );
                 }
                 return; // Success
             } else if (settings.showLockNotifications) {
-                toastr.warning(t`Locked preset "${escapeHtml(lockedPreset)}" not found`, t`World Info Presets`);
+                toastr.warning(
+                    tKey('stwil.toast.lockedPresetNotFound', 'Locked preset "${0}" not found', escapeHtml(lockedPreset)),
+                    translate('World Info Presets', 'stwil.title')
+                );
                 return; // Preset not found, don't retry
             }
         }
@@ -536,7 +582,10 @@ async function checkAndApplyLocks() {
                 console.log('STWIL: Applying global default preset for unlocked character:', settings.globalDefaultPreset);
                 await activatePreset(defaultPreset);
                 if (settings.showLockNotifications) {
-                    toastr.info(t`Applied global default preset "${escapeHtml(settings.globalDefaultPreset)}" for unlocked character`, t`World Info Presets`);
+                    toastr.info(
+                        tKey('stwil.toast.appliedGlobalDefaultForUnlocked', 'Applied global default preset "${0}" for unlocked character', escapeHtml(settings.globalDefaultPreset)),
+                        translate('World Info Presets', 'stwil.title')
+                    );
                 }
                 return;
             } else {
@@ -557,7 +606,7 @@ async function checkAndApplyLocks() {
 const activatePresetByName = async(name)=>{
     const preset = settings.presetList.find(it=>it.name.toLowerCase() == name.toLowerCase());
     if (!preset) {
-        toastr.warning(t`Preset "${escapeHtml(name)}" not found`);
+        toastr.warning(tKey('stwil.toast.presetNotFound', 'Preset "${0}" not found', escapeHtml(name)));
         return;
     }
     await activatePreset(preset);
@@ -568,12 +617,12 @@ export const activatePreset = async(preset, skipLockCheck = false)=>{
     if (!skipLockCheck && hasAnyLocks()) {
         const currentLock = getLockForContext();
         if (currentLock && preset?.name !== currentLock) {
-            const newName = preset?.name || t`None`;
+            const newName = preset?.name || translate('None', 'stwil.common.none');
             const content = document.createElement('div');
             content.innerHTML = `
-                <h3>${t`Preset Lock Active`}</h3>
-                <p>${t`This context is locked to preset "${escapeHtml(currentLock)}" but you're switching to "${escapeHtml(newName)}".`}</p>
-                <p>${t`Do you want to update the lock to use the new preset?`}</p>
+                <h3>${translate('Preset Lock Active', 'stwil.dialog.lockActive.title')}</h3>
+                <p>${tKey('stwil.dialog.lockActive.body1', 'This context is locked to preset "${0}" but you\'re switching to "${1}".', escapeHtml(currentLock), escapeHtml(newName))}</p>
+                <p>${translate('Do you want to update the lock to use the new preset?', 'stwil.dialog.lockActive.body2')}</p>
             `;
             const shouldUpdate = await callPopup(content, 'confirm');
             
@@ -620,8 +669,8 @@ export const activatePreset = async(preset, skipLockCheck = false)=>{
                 if (settings.showLockNotifications && settingsResult.failedSettings.length > 0) {
                     const failedList = settingsResult.failedSettings.join(', ');
                     toastr.warning(
-                        t`Some world info settings failed to apply: ${failedList}`,
-                        t`World Info Presets`
+                        tKey('stwil.toast.settingsApplyPartialFail', 'Some world info settings failed to apply: ${0}', failedList),
+                        translate('World Info Presets', 'stwil.title')
                     );
                 }
             } else {
@@ -630,7 +679,10 @@ export const activatePreset = async(preset, skipLockCheck = false)=>{
         } catch (error) {
             console.error(`STWIL: Error applying world info settings for preset "${preset.name}":`, error);
             if (settings.showLockNotifications) {
-                toastr.error(t`Failed to apply world info settings for preset "${escapeHtml(preset.name)}"`, t`World Info Presets`);
+                toastr.error(
+                    tKey('stwil.toast.applySettingsFailed', 'Failed to apply world info settings for preset "${0}"', escapeHtml(preset.name)),
+                    translate('World Info Presets', 'stwil.title')
+                );
             }
         }
     }
@@ -667,9 +719,10 @@ const updateSelect = ()=>{
     // Update the blank option to show global default
     const blankOption = presetSelect.children[0];
     if (blankOption && blankOption.value === '') {
+        blankOption.setAttribute('data-i18n', 'stwil.select.placeholder');
         blankOption.textContent = settings.globalDefaultPreset ?
-            t`--- Default: ${settings.globalDefaultPreset} ---` :
-            t`--- Pick a Preset ---`;
+            tKey('stwil.select.default', '--- Default: ${0} ---', settings.globalDefaultPreset) :
+            translate('--- Pick a Preset ---', 'stwil.select.placeholder');
     }
 
     // Get all option elements (excluding the blank option)
@@ -746,7 +799,7 @@ async function showLockSettings() {
         contextLockHtml = `
             <label class="checkbox_label">
                 <input type="checkbox" id="groupLockCheckbox" ${groupLock ? 'checked' : ''}>
-                <span>${t`Lock to group`}${context.groupName ? ` (${escapeHtml(context.groupName)})` : ''}</span>
+                <span>${translate('Lock to group', 'stwil.dialog.locks.lockToGroup')}${context.groupName ? ` (${escapeHtml(context.groupName)})` : ''}</span>
             </label>
         `;
     } else {
@@ -755,21 +808,21 @@ async function showLockSettings() {
         contextLockHtml = `
             <label class="checkbox_label">
                 <input type="checkbox" id="characterLockCheckbox" ${characterLock ? 'checked' : ''}>
-                <span>${t`Lock to character`}${context.characterName ? ` (${escapeHtml(context.characterName)})` : ''}</span>
+                <span>${translate('Lock to character', 'stwil.dialog.locks.lockToCharacter')}${context.characterName ? ` (${escapeHtml(context.characterName)})` : ''}</span>
             </label>
         `;
     }
 
     const content = document.createElement('div');
-    const presetNameHtml = settings.presetName || t`None`;
+    const presetNameHtml = settings.presetName || translate('None', 'stwil.common.none');
     content.innerHTML = `
-        <h3>${t`Preset Locks`}</h3>
-        <p>${t`Lock the current preset "${escapeHtml(presetNameHtml)}" to this context:`}</p>
+        <h3>${translate('Preset Locks', 'stwil.dialog.locks.title')}</h3>
+        <p>${tKey('stwil.dialog.locks.message', 'Lock the current preset "${0}" to this context:', escapeHtml(presetNameHtml))}</p>
         <div>
             ${contextLockHtml}
             <label class="checkbox_label">
                 <input type="checkbox" id="chatLockCheckbox" ${chatLock ? 'checked' : ''}>
-                <span>${t`Lock to chat`}</span>
+                <span>${translate('Lock to chat', 'stwil.dialog.locks.lockToChat')}</span>
             </label>
         </div>
     `;
@@ -797,21 +850,27 @@ async function showLockSettings() {
 
         if (settings.showLockNotifications) {
             const locks = [];
-            if (chatLockChecked) locks.push(t`chat`);
+            if (chatLockChecked) locks.push(translate('chat', 'stwil.lock.chat'));
 
             if (context.isGroupChat) {
                 const groupLockChecked = content.querySelector('#groupLockCheckbox')?.checked || false;
-                if (groupLockChecked) locks.push(t`group`);
+                if (groupLockChecked) locks.push(translate('group', 'stwil.lock.group'));
             } else {
                 const characterLockChecked = content.querySelector('#characterLockCheckbox')?.checked || false;
-                if (characterLockChecked) locks.push(t`character`);
+                if (characterLockChecked) locks.push(translate('character', 'stwil.lock.character'));
             }
 
             if (locks.length > 0) {
                 const locksText = locks.join(', ');
-                toastr.success(t`Preset "${escapeHtml(settings.presetName)}" locked to ${locksText}`, t`World Info Presets`);
+                toastr.success(
+                    tKey('stwil.toast.presetLockedTo', 'Preset "${0}" locked to ${1}', escapeHtml(settings.presetName), locksText),
+                    translate('World Info Presets', 'stwil.title')
+                );
             } else {
-                toastr.info(t`All locks removed`, t`World Info Presets`);
+                toastr.info(
+                    translate('All locks removed', 'stwil.toast.allLocksRemoved'),
+                    translate('World Info Presets', 'stwil.title')
+                );
             }
         }
     }
@@ -826,36 +885,36 @@ async function showSettings() {
         .join('');
     
     content.innerHTML = `
-        <h3>${t`World Info Preset Settings`}</h3>
+        <h3>${translate('World Info Preset Settings', 'stwil.settings.dialog.title')}</h3>
         <div>
             <div class="marginBot10">
-                <h4 class="marginBot5">${t`Global Default Preset:`}</h4>
+                <h4 class="marginBot5">${translate('Global Default Preset:', 'stwil.settings.dialog.globalDefaultHeading')}</h4>
                 <select id="globalDefaultPreset">
-                    <option value="">${t`None`}</option>
+                    <option value="">${translate('None', 'stwil.common.none')}</option>
                     ${presetOptions}
                 </select>
-                <small style="color: var(--grey50);">${t`This preset will be applied when no specific preset is selected and no locks are active.`}</small>
+                <small style="color: var(--grey50);">${translate('This preset will be applied when no specific preset is selected and no locks are active.', 'stwil.settings.dialog.globalDefaultTip')}</small>
             </div>
             <hr class="marginTopBot5">
             <label class="checkbox_label">
                 <input type="checkbox" id="enableCharacterLocks" ${settings.enableCharacterLocks ? 'checked' : ''}>
-                <span>${t`Enable character locks`}</span>
+                <span>${translate('Enable character locks', 'stwil.settings.dialog.enableCharacterLocks')}</span>
             </label>
             <label class="checkbox_label">
                 <input type="checkbox" id="enableGroupLocks" ${settings.enableGroupLocks ? 'checked' : ''}>
-                <span>${t`Enable group locks`}</span>
+                <span>${translate('Enable group locks', 'stwil.settings.dialog.enableGroupLocks')}</span>
             </label>
             <label class="checkbox_label">
                 <input type="checkbox" id="enableChatLocks" ${settings.enableChatLocks ? 'checked' : ''}>
-                <span>${t`Enable chat locks`}</span>
+                <span>${translate('Enable chat locks', 'stwil.settings.dialog.enableChatLocks')}</span>
             </label>
             <label class="checkbox_label">
                 <input type="checkbox" id="preferChatOverCharacterLocks" ${settings.preferChatOverCharacterLocks ? 'checked' : ''}>
-                <span>${t`Prefer chat locks over character/group locks`}</span>
+                <span>${translate('Prefer chat locks over character/group locks', 'stwil.settings.dialog.preferChatOverCharacterLocks')}</span>
             </label>
             <label class="checkbox_label">
                 <input type="checkbox" id="showLockNotifications" ${settings.showLockNotifications ? 'checked' : ''}>
-                <span>${t`Show lock notifications`}</span>
+                <span>${translate('Show lock notifications', 'stwil.settings.dialog.showLockNotifications')}</span>
             </label>
         </div>
     `;
@@ -1079,7 +1138,7 @@ const loadBook = async(name)=>{
         data.book = name;
         return data;
     } else {
-        toastr.warning(t`Failed to load World Info book: ${escapeHtml(name)}`);
+        toastr.warning(tKey('stwil.toast.loadBookFailed', 'Failed to load World Info book: ${0}', escapeHtml(name)));
         return null; // Return null on failure to prevent undefined behavior
     }
 };
@@ -1087,7 +1146,7 @@ const loadBook = async(name)=>{
 const importBooks = async(data)=>{
     if (data.books && Object.keys(data.books).length > 0) {
         const content = document.createElement('div');
-        content.innerHTML = `<h3>${t`The preset contains World Info books. Import the books?`}</h3>`;
+        content.innerHTML = `<h3>${translate('The preset contains World Info books. Import the books?', 'stwil.import.books.confirmTitle')}</h3>`;
         const doImport = await callPopup(content, 'confirm');
         if (doImport) {
             for (const key of Object.keys(data.books)) {
@@ -1103,7 +1162,7 @@ const importBooks = async(data)=>{
 const importCharacterLocks = async(data)=>{
     if (data.characterLocks && Object.keys(data.characterLocks).length > 0) {
         const content = document.createElement('div');
-        content.innerHTML = `<h3>${t`The preset contains character locks. Import the character locks?`}</h3>`;
+        content.innerHTML = `<h3>${translate('The preset contains character locks. Import the character locks?', 'stwil.import.characterLocks.confirmTitle')}</h3>`;
         const doImport = await callPopup(content, 'confirm');
         if (doImport) {
             Object.assign(settings.characterLocks, data.characterLocks);
@@ -1115,7 +1174,7 @@ const importCharacterLocks = async(data)=>{
 const importGroupLocks = async(data)=>{
     if (data.groupLocks && Object.keys(data.groupLocks).length > 0) {
         const content = document.createElement('div');
-        content.innerHTML = `<h3>${t`The preset contains group locks. Import the group locks?`}</h3>`;
+        content.innerHTML = `<h3>${translate('The preset contains group locks. Import the group locks?', 'stwil.import.groupLocks.confirmTitle')}</h3>`;
         const doImport = await callPopup(content, 'confirm');
         if (doImport) {
             Object.assign(settings.groupLocks, data.groupLocks);
@@ -1127,7 +1186,7 @@ const importGroupLocks = async(data)=>{
 const importGlobalDefault = async(data, presetName)=>{
     if (data.isGlobalDefault) {
         const content = document.createElement('div');
-        content.innerHTML = `<h3>${t`This preset was exported as a global default. Set "${escapeHtml(presetName)}" as your global default?`}</h3>`;
+        content.innerHTML = `<h3>${tKey('stwil.import.globalDefault.confirmTitle', 'This preset was exported as a global default. Set "${0}" as your global default?', escapeHtml(presetName))}</h3>`;
         const doImport = await callPopup(content, 'confirm');
         if (doImport) {
             settings.globalDefaultPreset = presetName;
@@ -1157,13 +1216,13 @@ const importSinglePreset = async(file)=>{
         while (old) {
             const importNameContent = document.createElement('div');
             importNameContent.innerHTML = `
-                <h3>${t`Import World Info Preset: "${escapeHtml(data.name)}"`}</h3>
-                <h4>${t`A preset by that name already exists. Change the name to import under a new name, or keep the name to ovewrite the existing preset.`}</h4>
+                <h3>${tKey('stwil.import.nameConflict.title', 'Import World Info Preset: "${0}"', escapeHtml(data.name))}</h3>
+                <h4>${translate('A preset by that name already exists. Change the name to import under a new name, or keep the name to ovewrite the existing preset.', 'stwil.import.nameConflict.subtitle')}</h4>
             `;
             const newName = await callPopup(importNameContent, 'input', data.name);
             if (newName == data.name) {
                 const overwriteContent = document.createElement('div');
-                overwriteContent.innerHTML = `<h3>${t`Overwrite World Info Preset "${escapeHtml(newName)}"?`}</h3>`;
+                overwriteContent.innerHTML = `<h3>${tKey('stwil.import.overwrite.title', 'Overwrite World Info Preset "${0}"?', escapeHtml(newName))}</h3>`;
                 const overwrite = await callPopup(overwriteContent, 'confirm');
                 if (overwrite) {
                     old.worldList = data.worldList; 
@@ -1195,7 +1254,7 @@ const importSinglePreset = async(file)=>{
         updateSelect();
         saveSettingsDebounced();
     } catch (ex) {
-        toastr.error(t`Failed to import "${escapeHtml(file.name)}":\n\n${escapeHtml(ex.message)}`);
+        toastr.error(tKey('stwil.toast.importFailed', 'Failed to import "${0}":\n\n${1}', escapeHtml(file.name), escapeHtml(ex.message)));
     }
 };
 
@@ -1206,16 +1265,16 @@ async function showSettingsSelectionDialog() {
     const content = document.createElement('div');
     // No custom className needed - let ST handle popup content styling
     content.innerHTML = `
-        <h3>${t`World Info Settings Inclusion`}</h3>
-        <p>${t`OPTIONAL: Choose which global world info settings to include in this preset:`}</p>
+        <h3>${translate('World Info Settings Inclusion', 'stwil.settings.inclusion.title')}</h3>
+        <p>${translate('OPTIONAL: Choose which global world info settings to include in this preset:', 'stwil.settings.inclusion.optional')}</p>
 
         <div class="marginBot10">
             <label class="checkbox_label">
                 <input type="checkbox" id="includeSettingsToggle" checked>
-                <span><strong>${t`Include world info settings in preset`}</strong></span>
+                <span><strong>${translate('Include world info settings in preset', 'stwil.settings.inclusion.include')}</strong></span>
             </label>
             <small class="displayBlock indent20p" style="color: var(--grey50);">
-                ${t`When enabled, switching to this preset will also apply the selected global settings.`}
+                ${translate('When enabled, switching to this preset will also apply the selected global settings.', 'stwil.settings.inclusion.whenEnabled')}
             </small>
         </div>
 
@@ -1226,7 +1285,7 @@ async function showSettingsSelectionDialog() {
                     <h5>${category.name}</h5>
                     <label class="checkbox_label">
                         <input type="checkbox" class="categoryToggle" data-category="${catKey}" checked>
-                        <span>${t`Include this category`}</span>
+                        <span>${translate('Include this category', 'stwil.settings.inclusion.includeCategory')}</span>
                     </label>
                     <p class="marginTopBot5" style="color: var(--grey70); font-size: 0.9em;">${category.description}</p>
                     <div class="indent20p">
@@ -1274,7 +1333,7 @@ async function showSettingsSelectionDialog() {
 
     const customButtons = [
         {
-            text: t`Select All`,
+            text: translate('Select All', 'stwil.common.selectAll'),
             classes: ['menu_button'],
             action: () => {
                 content.querySelectorAll('.categoryToggle, .settingCheckbox').forEach(cb => cb.checked = true);
@@ -1286,7 +1345,7 @@ async function showSettingsSelectionDialog() {
             }
         },
         {
-            text: t`Select None`,
+            text: translate('Select None', 'stwil.common.selectNone'),
             classes: ['menu_button'],
             action: () => {
                 content.querySelectorAll('.categoryToggle, .settingCheckbox').forEach(cb => cb.checked = false);
@@ -1300,8 +1359,8 @@ async function showSettingsSelectionDialog() {
     ];
 
     const popup = new Popup(content, POPUP_TYPE.CONFIRM, '', {
-        okButton: t`OK`,
-        cancelButton: t`Cancel`,
+        okButton: translate('OK', 'stwil.common.ok'),
+        cancelButton: translate('Cancel', 'stwil.common.cancel'),
         customButtons: customButtons,
         allowVerticalScrolling: true
     });
@@ -1324,7 +1383,7 @@ async function showSettingsSelectionDialog() {
 
 const createPreset = async()=>{
     const nameContent = document.createElement('div');
-    nameContent.innerHTML = `<h3>${t`Preset Name:`}</h3>`;
+    nameContent.innerHTML = `<h3>${translate('Preset Name:', 'stwil.dialog.presetName.title')}</h3>`;
     const name = await callPopup(nameContent, 'input', settings.presetName);
     if (!name) return;
 
@@ -1381,6 +1440,8 @@ function onChatChanged() {
 }
 
 const init = ()=>{
+    // Initialize i18n for STWIL (merge extension locales and apply)
+    loadStwilLocale();
     const container = document.querySelector('#WorldInfo > div > h3');
     if (!container) {
         console.warn('STWIL: WorldInfo container not found, retrying in 500ms...');
@@ -1412,9 +1473,10 @@ const init = ()=>{
         presetSelect = document.createElement('select'); {
             const blank = document.createElement('option'); {
                 blank.value = '';
+                blank.setAttribute('data-i18n', 'stwil.select.placeholder');
                 blank.textContent = settings.globalDefaultPreset ? 
-                    t`--- Default: ${settings.globalDefaultPreset} ---` : 
-                    t`--- Pick a Preset ---`;
+                    tKey('stwil.select.default', '--- Default: ${0} ---', settings.globalDefaultPreset) : 
+                    translate('--- Pick a Preset ---', 'stwil.select.placeholder');
                 presetSelect.append(blank);
             }
             for (const preset of settings.presetList.toSorted((a,b)=>a.name.toLowerCase().localeCompare(b.name.toLowerCase()))) {
@@ -1433,9 +1495,12 @@ const init = ()=>{
                         const defaultPreset = settings.presetList.find(p => p.name === settings.globalDefaultPreset);
                         if (defaultPreset) {
                             await activatePreset(defaultPreset);
-                            if (settings.showLockNotifications) {
-                                toastr.info(t`Applied global default preset "${escapeHtml(settings.globalDefaultPreset)}"`, t`World Info Presets`);
-                            }
+                    if (settings.showLockNotifications) {
+                        toastr.info(
+                            tKey('stwil.toast.appliedGlobalDefault', 'Applied global default preset "${0}"', escapeHtml(settings.globalDefaultPreset)),
+                            translate('World Info Presets', 'stwil.title')
+                        );
+                    }
                         } else {
                             // Global default preset not found, clear current preset
                             await activatePreset(null);
@@ -1457,7 +1522,8 @@ const init = ()=>{
             // Lock button
             lockButton = document.createElement('div'); {
                 lockButton.classList.add('menu_button', 'fa-solid', 'fa-lock');
-                lockButton.title = t`Preset locks`;
+                lockButton.setAttribute('data-i18n', '[title]stwil.ui.lockButton.title');
+                lockButton.title = translate('Preset locks', 'stwil.ui.lockButton.title');
                 lockButton.addEventListener('click', showLockSettings);
                 actions.append(lockButton);
             }
@@ -1465,18 +1531,20 @@ const init = ()=>{
             // Settings button
             settingsButton = document.createElement('div'); {
                 settingsButton.classList.add('menu_button', 'fa-solid', 'fa-gear');
-                settingsButton.title = t`Settings`;
+                settingsButton.setAttribute('data-i18n', '[title]stwil.ui.settingsButton.title');
+                settingsButton.title = translate('Settings', 'stwil.ui.settingsButton.title');
                 settingsButton.addEventListener('click', showSettings);
                 actions.append(settingsButton);
             }
             
             const btnRename = document.createElement('div'); {
                 btnRename.classList.add('menu_button', 'fa-solid', 'fa-pencil');
-                btnRename.title = t`Rename current preset`;
+                btnRename.setAttribute('data-i18n', '[title]stwil.ui.renameButton.title');
+                btnRename.title = translate('Rename current preset', 'stwil.ui.renameButton.title');
                 btnRename.addEventListener('click', async()=>{
                     const oldName = settings.presetName;
                     const renameContent = document.createElement('div');
-                    renameContent.innerHTML = `<h3>${t`Rename Preset:`}</h3>`;
+                    renameContent.innerHTML = `<h3>${translate('Rename Preset:', 'stwil.dialog.renamePreset.title')}</h3>`;
                     const name = await callPopup(renameContent, 'input', settings.presetName);
                     if (!name || name === oldName) return;
                     
@@ -1514,7 +1582,8 @@ const init = ()=>{
             }
             const btnUpdate = document.createElement('div'); {
                 btnUpdate.classList.add('menu_button', 'fa-solid', 'fa-save');
-                btnUpdate.title = t`Update current preset`;
+                btnUpdate.setAttribute('data-i18n', '[title]stwil.ui.updateButton.title');
+                btnUpdate.title = translate('Update current preset', 'stwil.ui.updateButton.title');
                 btnUpdate.addEventListener('click', ()=>{
                     if (!settings.preset) return createPreset();
                     settings.preset.worldList = [...world_info.globalSelect];
@@ -1525,13 +1594,15 @@ const init = ()=>{
             }
             const btnCreate = document.createElement('div'); {
                 btnCreate.classList.add('menu_button', 'fa-solid', 'fa-file-circle-plus');
-                btnCreate.title = t`Save current preset as`;
+                btnCreate.setAttribute('data-i18n', '[title]stwil.ui.createButton.title');
+                btnCreate.title = translate('Save current preset as', 'stwil.ui.createButton.title');
                 btnCreate.addEventListener('click', async()=>createPreset());
                 actions.append(btnCreate);
             }
             const btnRestore = document.createElement('div'); {
                 btnRestore.classList.add('menu_button', 'fa-solid', 'fa-rotate-left');
-                btnRestore.title = t`Restore current preset`;
+                btnRestore.setAttribute('data-i18n', '[title]stwil.ui.restoreButton.title');
+                btnRestore.title = translate('Restore current preset', 'stwil.ui.restoreButton.title');
                 btnRestore.addEventListener('click', ()=>activatePreset(settings.preset, true));
                 actions.append(btnRestore);
             }
@@ -1544,34 +1615,36 @@ const init = ()=>{
             }
             const btnImport = document.createElement('div'); {
                 btnImport.classList.add('menu_button', 'fa-solid', 'fa-file-import');
-                btnImport.title = t`Import preset`;
+                btnImport.setAttribute('data-i18n', '[title]stwil.ui.importButton.title');
+                btnImport.title = translate('Import preset', 'stwil.ui.importButton.title');
                 btnImport.addEventListener('click', ()=>importFile.click());
                 actions.append(btnImport);
             }
             const btnExport = document.createElement('div'); {
                 btnExport.classList.add('menu_button', 'fa-solid', 'fa-file-export');
-                btnExport.title = t`Export the current preset`;
+                btnExport.setAttribute('data-i18n', '[title]stwil.ui.exportButton.title');
+                btnExport.title = translate('Export the current preset', 'stwil.ui.exportButton.title');
                 btnExport.addEventListener('click', async () => {
                     if (!settings.preset) {
-                        toastr.warning(t`No preset selected to export`);
+                        toastr.warning(translate('No preset selected to export', 'stwil.toast.noPresetToExport'));
                         return;
                     }
 
                     // Create a container element for the popup's content
                     const content = document.createElement('div');
                     content.innerHTML = `
-                        <h3>${t`Export World Info Preset: "${escapeHtml(settings.presetName)}"`}</h3>
+                        <h3>${tKey('stwil.export.title', 'Export World Info Preset: "${0}"', escapeHtml(settings.presetName))}</h3>
                         <div>
                             <label class="checkbox_label">
                                 <input type="checkbox" id="includeBooks" checked>
-                                <span>${t`Include books' contents in export`}</span>
+                                <span>${translate("Include books' contents in export", 'stwil.export.includeBooks')}</span>
                             </label>
                             <label class="checkbox_label">
                                 <input type="checkbox" id="useCurrentSelection">
-                                <span>${t`Use currently selected books instead of preset definition`}</span>
+                                <span>${translate('Use currently selected books instead of preset definition', 'stwil.export.useCurrentSelection')}</span>
                             </label>
                         </div>
-                        <p><small>${t`By default, exports the preset's defined book list. Check the second option to export your current working selection instead.`}</small></p>
+                        <p><small>${translate("By default, exports the preset's defined book list. Check the second option to export your current working selection instead.", 'stwil.export.tip')}</small></p>
                     `;
 
                     // Pass the element to the popup function
@@ -1635,11 +1708,12 @@ const init = ()=>{
             }
             const btnDelete = document.createElement('div'); {
                 btnDelete.classList.add('menu_button', 'redWarningBG', 'fa-solid', 'fa-trash-can');
-                btnDelete.title = t`Delete the current preset`;
+                btnDelete.setAttribute('data-i18n', '[title]stwil.ui.deleteButton.title');
+                btnDelete.title = translate('Delete the current preset', 'stwil.ui.deleteButton.title');
                 btnDelete.addEventListener('click', async()=>{
                     if (settings.presetName == '') return;
                     const deleteContent = document.createElement('div');
-                    deleteContent.innerHTML = `<h3>${t`Delete World Info Preset "${escapeHtml(settings.presetName)}"?`}</h3>`;
+                    deleteContent.innerHTML = `<h3>${tKey('stwil.delete.confirmTitle', 'Delete World Info Preset "${0}"?', escapeHtml(settings.presetName))}</h3>`;
                     const confirmed = await callPopup(deleteContent, 'confirm');
                     if (confirmed) {
                         const presetName = settings.presetName;
@@ -1737,14 +1811,14 @@ const init = ()=>{
                 // oldName has probably been renamed to newName
                 const popupText = `
                     <div style="text-align:left;">
-                        <h3>${t`World Info Renamed`}</h3>
-                        <p>${t`It looks like you renamed the World Info book "${escapeHtml(oldName)}" to "${escapeHtml(newName)}".`}</p>
-                        <p>${t`The following presets currently include the World Info book "${escapeHtml(oldName)}":`}</p>
+                        <h3>${translate('World Info Renamed', 'stwil.rename.title')}</h3>
+                        <p>${tKey('stwil.rename.body1', 'It looks like you renamed the World Info book "${0}" to "${1}".', escapeHtml(oldName), escapeHtml(newName))}</p>
+                        <p>${tKey('stwil.rename.body2', 'The following presets currently include the World Info book "${0}":', escapeHtml(oldName))}</p>
                         <ul>
                             ${presets.map(it=>`<li>${escapeHtml(it.name)}</li>`).join('')}
                         </ul>
                         <p>
-                            ${t`Do you want to update all ${presets.length} presets that include`} "<strong>${escapeHtml(oldName)}</strong>" ${t`to now include`} "<strong>${escapeHtml(newName)}</strong>" ${t`instead?`}
+                            ${tKey('stwil.rename.body3', 'Do you want to update all ${0} presets that include "${1}" to now include "${2}" instead?', presets.length, `<strong>${escapeHtml(oldName)}</strong>`, `<strong>${escapeHtml(newName)}</strong>`)}
                         </p>
                     </div>
                 `;
@@ -1773,7 +1847,7 @@ registerSlashCommand('wipreset',
         activatePresetByName(value);
     },
     [],
-    t`<span class="monospace">(optional preset name)</span> – Activate a World Info preset. Leave name blank to deactivate current preset (unload all WI books).`,
+    translate('<span class="monospace">(optional preset name)</span> – Activate a World Info preset. Leave name blank to deactivate current preset (unload all WI books).', 'stwil.slash.help'),
     true,
     true,
 );
