@@ -4,7 +4,11 @@ World Info Locks is a comprehensive preset management system for SillyTavern's W
 
 ![The ST World Info Locks Interface](https://github.com/aikohanasaki/imagehost/blob/main/STWIL.png)
 
-## 🌟 Key Features
+## � Translations
+- 简体中文 (zh-CN): [readmes/README.zh-cn.md](readmes/README.zh-cn.md)
+- 繁體中文 (zh-TW): [readmes/README.zh-tw.md](readmes/README.zh-tw.md)
+
+## �🌟 Key Features
 
 ### 📚 **World Info Presets**
 - **Save and Load Presets**: Create named presets that include both world info books and activation settings
