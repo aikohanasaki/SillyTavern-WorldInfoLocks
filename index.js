@@ -1479,7 +1479,7 @@ const init = ()=>{
                     translate('--- Pick a Preset ---', 'stwil.select.placeholder');
                 presetSelect.append(blank);
             }
-            for (const preset of settings.presetList.toSorted((a,b)=>a.name.toLowerCase().localeCompare(b.name.toLowerCase()))) {
+            for (const preset of (settings.presetList || []).filter(p => p && p.name).toSorted((a, b) => (a.name || '').toLowerCase().localeCompare((b.name || '').toLowerCase()))) {
                 const opt = document.createElement('option'); {
                     opt.value = preset.name;
                     opt.textContent = preset.name;

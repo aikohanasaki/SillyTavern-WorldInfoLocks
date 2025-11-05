@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.10.5] - 2025-11-05
+
+### Fixed
+- **Crash on unnamed/blank preset**: Fixed bug where presets with no name crash on load. (Thank you @deliss__ for locating the bug and providing code to fix!)
+
 ## [1.10.4] - 2025-10-01
 
 ### Security
