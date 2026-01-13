@@ -80,7 +80,7 @@ World Info Locks is a comprehensive preset management system for SillyTavern's W
 
 ### Import/Export Workflow
 
-~[Exporting](https://github.com/aikohanasaki/imagehost/blob/main/STWIL%20export.png)
+![Exporting](https://github.com/aikohanasaki/imagehost/blob/main/STWIL%20export.png)
 
 **Exporting:**
 1. Select the preset to export
