@@ -1343,7 +1343,7 @@ async function showSettingsSelectionDialog() {
 
         <div class="marginBot10">
             <label class="checkbox_label">
-                <input type="checkbox" id="includeSettingsToggle" checked>
+                <input type="checkbox" id="includeSettingsToggle">
                 <span><strong>${translate('Include world info settings in preset', 'stwil.settings.inclusion.include')}</strong></span>
             </label>
             <small class="displayBlock indent20p" style="color: var(--grey50);">
