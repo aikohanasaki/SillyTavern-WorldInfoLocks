@@ -1,4 +1,4 @@
-import { callPopup, eventSource, event_types, getRequestHeaders, saveSettingsDebounced, chat_metadata, name2, systemUserName, neutralCharacterName } from '../../../../script.js';
+import { callPopup, eventSource, event_types, getCurrentChatId, getRequestHeaders, saveSettingsDebounced, chat_metadata, name2, systemUserName, neutralCharacterName } from '../../../../script.js';
 import { extension_settings, saveMetadataDebounced } from '../../../extensions.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '../../../popup.js';
 import { executeSlashCommands, registerSlashCommand } from '../../../slash-commands.js';
@@ -464,7 +464,7 @@ function getCurrentContext() {
     let characterName = null;
     let groupId = null;
     let groupName = null;
-    let chatId = chat_metadata?.file_name || null;
+    let chatId = getCurrentChatId() || null;
 
     if (isGroupChat) {
         // For group chats, get group-specific information
@@ -472,8 +472,6 @@ function getCurrentContext() {
         const group = groups?.find(x => x.id === groupId);
         if (group) {
             groupName = group.name;
-            // Use group's chat_id if available, fallback to metadata file_name
-            chatId = group.chat_id || chatId;
         }
         // Don't set characterName for groups
     } else {
@@ -1384,6 +1382,7 @@ async function showSettingsSelectionDialog() {
     // Add event listeners
     const includeToggle = content.querySelector('#includeSettingsToggle');
     const categoriesDiv = content.querySelector('#settingsCategories');
+    categoriesDiv.style.display = includeToggle.checked ? 'block' : 'none';
 
     includeToggle.addEventListener('change', () => {
         categoriesDiv.style.display = includeToggle.checked ? 'block' : 'none';
