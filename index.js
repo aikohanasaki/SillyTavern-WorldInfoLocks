@@ -150,6 +150,10 @@ const WORLD_INFO_SETTING_KEYS = [
     'world_info_max_recursion_steps',
 ];
 
+const IGNORED_WORLD_INFO_SETTING_KEYS = new Set([
+    'world_info_insertion_strategy',
+]);
+
 function getAvailableWorldInfoSettings() {
     try {
         return getWorldInfoSettings() ?? {};
@@ -160,7 +164,10 @@ function getAvailableWorldInfoSettings() {
 }
 
 function getSupportedWorldInfoSettingKeys(settingsSource = getAvailableWorldInfoSettings()) {
-    return WORLD_INFO_SETTING_KEYS.filter(key => Object.prototype.hasOwnProperty.call(settingsSource, key));
+    return WORLD_INFO_SETTING_KEYS.filter(key =>
+        !IGNORED_WORLD_INFO_SETTING_KEYS.has(key) &&
+        Object.prototype.hasOwnProperty.call(settingsSource, key)
+    );
 }
 
 function filterWorldInfoSettings(settingsObject, returnNullIfEmpty = false, settingsSource = getAvailableWorldInfoSettings()) {
