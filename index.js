@@ -134,31 +134,75 @@ function getCharacterNameForSettings() {
     return characterName;
 }
 
+const WORLD_INFO_SETTING_KEYS = [
+    'world_info_depth',
+    'world_info_min_activations',
+    'world_info_min_activations_depth_max',
+    'world_info_budget',
+    'world_info_include_names',
+    'world_info_recursive',
+    'world_info_overflow_alert',
+    'world_info_case_sensitive',
+    'world_info_match_whole_words',
+    'world_info_character_strategy',
+    'world_info_budget_cap',
+    'world_info_use_group_scoring',
+    'world_info_max_recursion_steps',
+];
+
+function getAvailableWorldInfoSettings() {
+    try {
+        return getWorldInfoSettings() ?? {};
+    } catch (error) {
+        console.warn('STWIL: Failed to read World Info settings for feature detection:', error);
+        return {};
+    }
+}
+
+function getSupportedWorldInfoSettingKeys(settingsSource = getAvailableWorldInfoSettings()) {
+    return WORLD_INFO_SETTING_KEYS.filter(key => Object.prototype.hasOwnProperty.call(settingsSource, key));
+}
+
+function filterWorldInfoSettings(settingsObject, returnNullIfEmpty = false, settingsSource = getAvailableWorldInfoSettings()) {
+    if (!settingsObject || typeof settingsObject !== 'object') {
+        return returnNullIfEmpty ? null : {};
+    }
+
+    const filtered = {};
+    for (const key of getSupportedWorldInfoSettingKeys(settingsSource)) {
+        if (Object.prototype.hasOwnProperty.call(settingsObject, key)) {
+            filtered[key] = settingsObject[key];
+        }
+    }
+
+    if (returnNullIfEmpty && Object.keys(filtered).length === 0) {
+        return null;
+    }
+
+    return filtered;
+}
+
+function areWorldInfoSettingsEqual(a, b) {
+    return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
+}
+
 function snapshotWorldInfoSettings() {
-    const s = getWorldInfoSettings();
-    // Only keep the fields you asked for (and avoid saving the whole world_info object)
-    return {
-        world_info_depth: s.world_info_depth,
-        world_info_min_activations: s.world_info_min_activations,
-        world_info_min_activations_depth_max: s.world_info_min_activations_depth_max,
-        world_info_budget: s.world_info_budget,
-        world_info_include_names: s.world_info_include_names,
-        world_info_recursive: s.world_info_recursive,
-        world_info_overflow_alert: s.world_info_overflow_alert,
-        world_info_case_sensitive: s.world_info_case_sensitive,
-        world_info_match_whole_words: s.world_info_match_whole_words,
-        world_info_character_strategy: s.world_info_character_strategy,
-        world_info_budget_cap: s.world_info_budget_cap,
-        world_info_use_group_scoring: s.world_info_use_group_scoring,
-        world_info_max_recursion_steps: s.world_info_max_recursion_steps,
-    };
+    const settingsSource = getAvailableWorldInfoSettings();
+    const snapshot = {};
+
+    for (const key of getSupportedWorldInfoSettingKeys(settingsSource)) {
+        snapshot[key] = settingsSource[key];
+    }
+
+    return snapshot;
 }
 
 function validateSettingsApplied(expectedSettings, logPrefix = 'STWIL') {
     const currentSettings = snapshotWorldInfoSettings();
+    const filteredExpectedSettings = filterWorldInfoSettings(expectedSettings, false, currentSettings);
     const mismatches = [];
 
-    for (const [key, expectedValue] of Object.entries(expectedSettings)) {
+    for (const [key, expectedValue] of Object.entries(filteredExpectedSettings)) {
         const currentValue = currentSettings[key];
 
         // Handle different types of comparisons
@@ -188,12 +232,13 @@ function validateSettingsApplied(expectedSettings, logPrefix = 'STWIL') {
         return { success: false, mismatches };
     }
 
-    console.log(`${logPrefix}: Settings validation passed. All ${Object.keys(expectedSettings).length} settings applied correctly.`);
+    console.log(`${logPrefix}: Settings validation passed. All ${Object.keys(filteredExpectedSettings).length} settings applied correctly.`);
     return { success: true, mismatches: [] };
 }
 
 function getSettingsCategories() {
-    return {
+    const supportedSettings = new Set(getSupportedWorldInfoSettingKeys());
+    const categories = {
         activation: {
             name: translate('Activation Settings', 'stwil.settings.category.activation.name'),
             description: translate('Controls when and how world info entries are activated', 'stwil.settings.category.activation.desc'),
@@ -232,6 +277,15 @@ function getSettingsCategories() {
             ]
         }
     };
+
+    return Object.fromEntries(
+        Object.entries(categories)
+            .map(([key, category]) => [key, {
+                ...category,
+                settings: category.settings.filter(setting => supportedSettings.has(setting)),
+            }])
+            .filter(([, category]) => category.settings.length > 0)
+    );
 }
 
 function generatePresetTooltip(preset) {
@@ -291,22 +345,31 @@ function generatePresetTooltip(preset) {
 
 function migratePresetsToIncludeSettings() {
     let migrated = 0;
+    let normalized = 0;
     const currentSettings = snapshotWorldInfoSettings();
 
     for (const preset of settings.presetList) {
         if (!preset.worldInfoSettings) {
             // Use current global settings as default for legacy presets
-            preset.worldInfoSettings = currentSettings;
+            preset.worldInfoSettings = Object.keys(currentSettings).length > 0 ? { ...currentSettings } : null;
             migrated++;
             console.log(`STWIL: Migrated preset "${preset.name}" to include world info settings`);
+            continue;
+        }
+
+        const filteredSettings = filterWorldInfoSettings(preset.worldInfoSettings, true, currentSettings);
+        if (!areWorldInfoSettingsEqual(preset.worldInfoSettings, filteredSettings)) {
+            preset.worldInfoSettings = filteredSettings;
+            normalized++;
+            console.log(`STWIL: Normalized preset "${preset.name}" to supported world info settings`);
         }
     }
 
-    if (migrated > 0) {
+    if (migrated > 0 || normalized > 0) {
         saveSettingsDebounced();
-        console.log(`STWIL: Migration complete. Updated ${migrated} presets to include global settings`);
+        console.log(`STWIL: Migration complete. Updated ${migrated} presets and normalized ${normalized} presets.`);
 
-        if (settings.showLockNotifications) {
+        if (settings.showLockNotifications && migrated > 0) {
             toastr.info(
                 tKey('stwil.toast.migratedPresets', 'Migrated ${0} presets to include global world info settings', migrated),
                 translate('World Info Presets', 'stwil.title')
@@ -971,7 +1034,17 @@ async function showSettings() {
  * @returns {Promise<{success: boolean, appliedSettings: Array, failedSettings: Array}>}
  */
 export async function applyWorldInfoEngineSettings(opts = {}, retryOnFailure = true, maxRetries = 2) {
-    const has = (k) => Object.prototype.hasOwnProperty.call(opts, k);
+    const supportedOpts = filterWorldInfoSettings(opts);
+    const has = (k) => Object.prototype.hasOwnProperty.call(supportedOpts, k);
+
+    if (Object.keys(supportedOpts).length === 0) {
+        return {
+            success: true,
+            appliedSettings: [],
+            failedSettings: [],
+            attempt: 0,
+        };
+    }
 
     const setNumberInputWithFallback = async (selector, value, key) => {
         const $el = $(selector);
@@ -1056,26 +1129,26 @@ export async function applyWorldInfoEngineSettings(opts = {}, retryOnFailure = t
         const results = [];
 
         // Numbers (simple)
-        if (has('world_info_depth')) results.push({ key: 'world_info_depth', success: await setNumberInputWithFallback('#world_info_depth', opts.world_info_depth, 'world_info_depth') });
-        if (has('world_info_min_activations_depth_max')) results.push({ key: 'world_info_min_activations_depth_max', success: await setNumberInputWithFallback('#world_info_min_activations_depth_max', opts.world_info_min_activations_depth_max, 'world_info_min_activations_depth_max') });
-        if (has('world_info_budget')) results.push({ key: 'world_info_budget', success: await setNumberInputWithFallback('#world_info_budget', opts.world_info_budget, 'world_info_budget') });
-        if (has('world_info_budget_cap')) results.push({ key: 'world_info_budget_cap', success: await setNumberInputWithFallback('#world_info_budget_cap', opts.world_info_budget_cap, 'world_info_budget_cap') });
+        if (has('world_info_depth')) results.push({ key: 'world_info_depth', success: await setNumberInputWithFallback('#world_info_depth', supportedOpts.world_info_depth, 'world_info_depth') });
+        if (has('world_info_min_activations_depth_max')) results.push({ key: 'world_info_min_activations_depth_max', success: await setNumberInputWithFallback('#world_info_min_activations_depth_max', supportedOpts.world_info_min_activations_depth_max, 'world_info_min_activations_depth_max') });
+        if (has('world_info_budget')) results.push({ key: 'world_info_budget', success: await setNumberInputWithFallback('#world_info_budget', supportedOpts.world_info_budget, 'world_info_budget') });
+        if (has('world_info_budget_cap')) results.push({ key: 'world_info_budget_cap', success: await setNumberInputWithFallback('#world_info_budget_cap', supportedOpts.world_info_budget_cap, 'world_info_budget_cap') });
 
         // Booleans (checkboxes)
-        if (has('world_info_include_names')) results.push({ key: 'world_info_include_names', success: await setCheckboxInputWithFallback('#world_info_include_names', opts.world_info_include_names, 'input', 'world_info_include_names') });
-        if (has('world_info_recursive')) results.push({ key: 'world_info_recursive', success: await setCheckboxInputWithFallback('#world_info_recursive', opts.world_info_recursive, 'input', 'world_info_recursive') });
-        if (has('world_info_case_sensitive')) results.push({ key: 'world_info_case_sensitive', success: await setCheckboxInputWithFallback('#world_info_case_sensitive', opts.world_info_case_sensitive, 'input', 'world_info_case_sensitive') });
-        if (has('world_info_match_whole_words')) results.push({ key: 'world_info_match_whole_words', success: await setCheckboxInputWithFallback('#world_info_match_whole_words', opts.world_info_match_whole_words, 'input', 'world_info_match_whole_words') });
+        if (has('world_info_include_names')) results.push({ key: 'world_info_include_names', success: await setCheckboxInputWithFallback('#world_info_include_names', supportedOpts.world_info_include_names, 'input', 'world_info_include_names') });
+        if (has('world_info_recursive')) results.push({ key: 'world_info_recursive', success: await setCheckboxInputWithFallback('#world_info_recursive', supportedOpts.world_info_recursive, 'input', 'world_info_recursive') });
+        if (has('world_info_case_sensitive')) results.push({ key: 'world_info_case_sensitive', success: await setCheckboxInputWithFallback('#world_info_case_sensitive', supportedOpts.world_info_case_sensitive, 'input', 'world_info_case_sensitive') });
+        if (has('world_info_match_whole_words')) results.push({ key: 'world_info_match_whole_words', success: await setCheckboxInputWithFallback('#world_info_match_whole_words', supportedOpts.world_info_match_whole_words, 'input', 'world_info_match_whole_words') });
 
         // Selects / change-bound booleans
-        if (has('world_info_character_strategy')) results.push({ key: 'world_info_character_strategy', success: await setSelectChangeWithFallback('#world_info_character_strategy', opts.world_info_character_strategy, 'world_info_character_strategy') });
-        if (has('world_info_overflow_alert')) results.push({ key: 'world_info_overflow_alert', success: await setCheckboxInputWithFallback('#world_info_overflow_alert', opts.world_info_overflow_alert, 'change', 'world_info_overflow_alert') });
-        if (has('world_info_use_group_scoring')) results.push({ key: 'world_info_use_group_scoring', success: await setCheckboxInputWithFallback('#world_info_use_group_scoring', opts.world_info_use_group_scoring, 'change', 'world_info_use_group_scoring') });
+        if (has('world_info_character_strategy')) results.push({ key: 'world_info_character_strategy', success: await setSelectChangeWithFallback('#world_info_character_strategy', supportedOpts.world_info_character_strategy, 'world_info_character_strategy') });
+        if (has('world_info_overflow_alert')) results.push({ key: 'world_info_overflow_alert', success: await setCheckboxInputWithFallback('#world_info_overflow_alert', supportedOpts.world_info_overflow_alert, 'change', 'world_info_overflow_alert') });
+        if (has('world_info_use_group_scoring')) results.push({ key: 'world_info_use_group_scoring', success: await setCheckboxInputWithFallback('#world_info_use_group_scoring', supportedOpts.world_info_use_group_scoring, 'change', 'world_info_use_group_scoring') });
 
         // Order matters due to built-in mutual exclusivity:
         // Apply max_recursion_steps first, then min_activations so min_activations "wins" if both are > 0.
-        if (has('world_info_max_recursion_steps')) results.push({ key: 'world_info_max_recursion_steps', success: await setNumberInputWithFallback('#world_info_max_recursion_steps', opts.world_info_max_recursion_steps, 'world_info_max_recursion_steps') });
-        if (has('world_info_min_activations')) results.push({ key: 'world_info_min_activations', success: await setNumberInputWithFallback('#world_info_min_activations', opts.world_info_min_activations, 'world_info_min_activations') });
+        if (has('world_info_max_recursion_steps')) results.push({ key: 'world_info_max_recursion_steps', success: await setNumberInputWithFallback('#world_info_max_recursion_steps', supportedOpts.world_info_max_recursion_steps, 'world_info_max_recursion_steps') });
+        if (has('world_info_min_activations')) results.push({ key: 'world_info_min_activations', success: await setNumberInputWithFallback('#world_info_min_activations', supportedOpts.world_info_min_activations, 'world_info_min_activations') });
 
         return results;
     };
@@ -1094,7 +1167,7 @@ export async function applyWorldInfoEngineSettings(opts = {}, retryOnFailure = t
         // Wait for UI to settle
         await new Promise(resolve => setTimeout(resolve, 100));
 
-        const validation = validateSettingsApplied(opts, 'STWIL-Apply');
+        const validation = validateSettingsApplied(supportedOpts, 'STWIL-Apply');
         if (validation.success) {
             console.log(`STWIL: Settings application successful on attempt ${attempt + 1}`);
             return {
@@ -1113,7 +1186,7 @@ export async function applyWorldInfoEngineSettings(opts = {}, retryOnFailure = t
     }
 
     // Final validation
-    const finalValidation = validateSettingsApplied(opts, 'STWIL-Final');
+    const finalValidation = validateSettingsApplied(supportedOpts, 'STWIL-Final');
     return {
         success: finalValidation.success,
         appliedSettings: applicationResults.filter(r => r.success).map(r => r.key),
@@ -1226,7 +1299,7 @@ const importSinglePreset = async(file)=>{
                 const overwrite = await callPopup(overwriteContent, 'confirm');
                 if (overwrite) {
                     old.worldList = data.worldList; 
-                    old.worldInfoSettings = data.worldInfoSettings ?? null;
+                    old.worldInfoSettings = filterWorldInfoSettings(data.worldInfoSettings, true);
                     await importBooks(data);
                     await importCharacterLocks(data);
                     await importGroupLocks(data);
@@ -1245,7 +1318,7 @@ const importSinglePreset = async(file)=>{
         const preset = new Preset();
         preset.name = data.name;
         preset.worldList = data.worldList;
-        preset.worldInfoSettings = data.worldInfoSettings ?? null;
+        preset.worldInfoSettings = filterWorldInfoSettings(data.worldInfoSettings, true);
         settings.presetList.push(preset);
         await importBooks(data);
         await importCharacterLocks(data);
@@ -1420,23 +1493,30 @@ const createPreset = async()=>{
     saveSettingsDebounced();
 };
 
-// Event handlers
-function onCharacterChanged() {
-    clearContextCache(); // Clear cache when character changes
-    updateLockButton();
+let contextRefreshTimer = null;
+let refreshPresetSelectOnContextChange = false;
 
-    // Always check for locks and global defaults, regardless of lock settings
-    setTimeout(() => {
+function scheduleContextRefresh({ updatePresetSelect = false, delay = 100 } = {}) {
+    clearContextCache(); // Clear cache when the active chat context changes
+    refreshPresetSelectOnContextChange ||= updatePresetSelect;
+
+    if (contextRefreshTimer) {
+        clearTimeout(contextRefreshTimer);
+    }
+
+    contextRefreshTimer = setTimeout(() => {
+        contextRefreshTimer = null;
+        updateLockButton();
+        if (refreshPresetSelectOnContextChange) {
+            updateSelect();
+            refreshPresetSelectOnContextChange = false;
+        }
         checkAndApplyLocks();
-    }, 100);
+    }, delay);
 }
 
 function onChatChanged() {
-    clearContextCache(); // Clear cache when chat changes
-    updateLockButton();
-    setTimeout(() => {
-        checkAndApplyLocks();
-    }, 100);
+    scheduleContextRefresh({ updatePresetSelect: true });
 }
 
 const init = ()=>{
@@ -1766,16 +1846,13 @@ const init = ()=>{
 
     // Event listeners
     if (eventSource && event_types) {
-        eventSource.on(event_types.CHARACTER_SELECTED, onCharacterChanged);
-        eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
-        eventSource.on(event_types.CHAT_LOADED, () => {
-            clearContextCache(); // Clear cache when chat loads
-            setTimeout(() => {
-                updateLockButton();
-                updateSelect(); // Update dropdown filtering for new context
-                checkAndApplyLocks();
-            }, 500);
-        });
+        if (event_types.CHAT_CHANGED) {
+            eventSource.on(event_types.CHAT_CHANGED, onChatChanged);
+        } else {
+            eventSource.on('chatLoaded', () => {
+                scheduleContextRefresh({ updatePresetSelect: true, delay: 500 });
+            });
+        }
     }
 
     const sel = document.querySelector('#world_editor_select');
