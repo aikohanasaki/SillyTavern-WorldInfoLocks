@@ -172,3 +172,7 @@ This extension is considered feature-complete, but contributions are still welco
 ## 🙏 Acknowledgments
 
 - Original [World Info Presets](https://github.com/LenAnderson/SillyTavern-WorldInfoPresets/) extension by LenAnderson
+
+## License
+
+This project is licensed under the GNU Affero General Public License v3.0. See [LICENSE](./LICENSE).
