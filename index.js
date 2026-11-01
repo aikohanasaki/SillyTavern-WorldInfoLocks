@@ -2,7 +2,7 @@ import { callPopup, eventSource, event_types, getRequestHeaders, saveSettingsDeb
 import { extension_settings, saveMetadataDebounced } from '../../../extensions.js';
 import { POPUP_RESULT, POPUP_TYPE, Popup } from '../../../popup.js';
 import { executeSlashCommands, registerSlashCommand } from '../../../slash-commands.js';
-import { importWorldInfo, world_info, getWorldInfoSettings } from '../../../world-info.js';
+import { importWorldInfo, world_info, world_names, getWorldInfoSettings, getSortedEntries, loadWorldInfo, saveWorldInfo, reloadEditor, worldInfoCache } from '../../../world-info.js';
 import { selected_group, groups } from '../../../group-chats.js';
 import { escapeHtml } from '../../../utils.js';
 import { addLocaleData, getCurrentLocale, translate, applyLocale } from '../../../i18n.js';
@@ -77,12 +77,14 @@ export class Preset {
     /**@type {String}*/ name;
     /**@type {String[]}*/ worldList = [];
     /**@type {Object|null}*/ worldInfoSettings = null;
+    /**@type {Object|null}*/ entryStates = null;
 
     toJSON() {
         return {
             name: this.name,
             worldList: this.worldList,
             worldInfoSettings: this.worldInfoSettings,
+            entryStates: this.entryStates,
         };
     }
 }
@@ -152,6 +154,120 @@ function snapshotWorldInfoSettings() {
         world_info_use_group_scoring: s.world_info_use_group_scoring,
         world_info_max_recursion_steps: s.world_info_max_recursion_steps,
     };
+}
+
+/**
+ * Capture enabled/disabled state and Trigger % for entries currently visible to
+ * SillyTavern's sorted World Info entry list. The book name + entry UID form
+ * the stable lookup key used when restoring a preset.
+ */
+async function snapshotLorebookEntryStates(worldList = []) {
+    const allowedBooks = new Set(worldList);
+    const snapshot = {};
+    const entries = await getSortedEntries();
+    for (const entry of entries) {
+        if (!entry || entry.world == null || entry.uid == null) continue;
+        const bookName = String(entry.world);
+        if (!allowedBooks.has(bookName)) continue;
+        const uid = String(entry.uid);
+        if (!snapshot[bookName]) snapshot[bookName] = {};
+        snapshot[bookName][uid] = {
+            enabled: !entry.disable,
+            useProbability: typeof entry.useProbability === 'boolean' ? entry.useProbability : undefined,
+            probability: entry.probability === null ? null : (Number.isFinite(Number(entry.probability)) ? Number(entry.probability) : 100),
+        };
+    }
+    return snapshot;
+}
+
+/**
+ * Restore entry enabled state and Trigger % from a preset, persisting changed
+ * lorebooks through SillyTavern's own World Info save function.
+ */
+async function applyLorebookEntryStates(entryStates, worldList = []) {
+    if (!entryStates || typeof entryStates !== 'object') return;
+    const allowedBooks = new Set(worldList);
+    const failedBooks = [];
+    for (const [bookName, states] of Object.entries(entryStates)) {
+        if (!allowedBooks.has(bookName)) continue;
+        if (!states || typeof states !== 'object') continue;
+        if (!world_names.includes(bookName)) {
+            console.warn(`STWIL: Lorebook "${bookName}" no longer exists; skipping entry-state restoration.`);
+            failedBooks.push(bookName);
+            continue;
+        }
+        const book = await loadWorldInfo(bookName);
+        if (!book || !book.entries) {
+            console.warn(`STWIL: Could not load lorebook "${bookName}" while restoring entry states.`);
+            failedBooks.push(bookName);
+            continue;
+        }
+        let changed = false;
+        for (const [uid, state] of Object.entries(states)) {
+            const entry = book.entries[uid];
+            if (!entry || !state || typeof state !== 'object') continue;
+            if (typeof state.enabled === 'boolean') {
+                const disabled = !state.enabled;
+                if (entry.disable !== disabled) {
+                    entry.disable = disabled;
+                    changed = true;
+                }
+            }
+            // Older presets do not have useProbability; leave that field unchanged for compatibility.
+            if (typeof state.useProbability === 'boolean' && entry.useProbability !== state.useProbability) {
+                entry.useProbability = state.useProbability;
+                changed = true;
+            }
+            if (state.probability === null || (typeof state.probability === 'number' && Number.isFinite(state.probability))) {
+                if (entry.probability !== state.probability) {
+                    entry.probability = state.probability;
+                    changed = true;
+                }
+            }
+        }
+        if (changed) {
+            // Do not call saveWorldInfo(..., true) here: SillyTavern's immediate
+            // save cancels its shared debounced save, which may belong to another book.
+            // Persist this book directly and leave any unrelated pending save intact.
+            // Publish the restored data to the cache before saving. If the user edits
+            // this book while the request is pending, saveWorldInfo updates the cache
+            // with that newer editor data; do not replace it with this older snapshot.
+            worldInfoCache.set(bookName, book);
+            const saveBook = async(data) => {
+                const response = await fetch('/api/worldinfo/edit', {
+                    method: 'POST',
+                    headers: getRequestHeaders(),
+                    body: JSON.stringify({ name: bookName, data }),
+                });
+                if (!response.ok) {
+                    throw new Error(`Failed to save restored lorebook "${bookName}": ${response.status} ${response.statusText}`);
+                }
+            };
+            // Keep saving until the cache stops changing. The editor updates this
+            // cache synchronously before scheduling its own debounced save, so this
+            // catches same-book edits made while any direct request is in flight.
+            let bookToSave = book;
+            while (true) {
+                await saveBook(bookToSave);
+                const latestBook = worldInfoCache.get(bookName);
+                if (JSON.stringify(latestBook) === JSON.stringify(bookToSave)) {
+                    break;
+                }
+                bookToSave = latestBook;
+            }
+
+            // The direct API request does not update SillyTavern's cache itself.
+            // Re-publish the final cached version after persistence, without replacing
+            // any newer editor data, so scans and the open editor see the same state.
+            const latestBook = worldInfoCache.get(bookName);
+            worldInfoCache.set(bookName, latestBook);
+            reloadEditor(bookName);
+            await eventSource.emit(event_types.WORLDINFO_UPDATED, bookName, latestBook);
+        }
+    }
+    if (failedBooks.length > 0) {
+        throw new Error(`Could not restore lorebook entry states for: ${failedBooks.join(', ')}`);
+    }
 }
 
 function validateSettingsApplied(expectedSettings, logPrefix = 'STWIL') {
@@ -612,7 +728,34 @@ const activatePresetByName = async(name)=>{
     await activatePreset(preset);
 };
 
-export const activatePreset = async(preset, skipLockCheck = false)=>{
+/**
+ * Activate a preset by applying its selected lorebooks, optional global settings,
+ * and saved per-entry activation states.
+ * @param {Preset|null|undefined} preset - Preset to activate, or null to clear it.
+ * @param {boolean} [skipLockCheck=false] - Whether to bypass preset lock checks.
+ */
+let presetActivationQueue = Promise.resolve();
+
+/**
+ * Queue preset activations so they complete in request order.
+ * This prevents overlapping activations from leaving an older preset active last.
+ * @param {Preset|null|undefined} preset - Preset to activate, or null to clear it.
+ * @param {boolean} [skipLockCheck=false] - Whether to bypass preset lock checks.
+ */
+export const activatePreset = async(preset, skipLockCheck = false) => {
+    const activation = presetActivationQueue.then(() => performPresetActivation(preset, skipLockCheck));
+    presetActivationQueue = activation.catch(error => {
+        console.error('STWIL: Preset activation failed:', error);
+    });
+    return await activation;
+};
+
+/**
+ * Apply a preset after earlier queued activations have completed.
+ * @param {Preset|null|undefined} preset - Preset to activate, or null to clear it.
+ * @param {boolean} [skipLockCheck=false] - Whether to bypass preset lock checks.
+ */
+const performPresetActivation = async(preset, skipLockCheck = false)=>{
     // Check if we're changing presets in a locked context
     if (!skipLockCheck && hasAnyLocks()) {
         const currentLock = getLockForContext();
@@ -686,7 +829,22 @@ export const activatePreset = async(preset, skipLockCheck = false)=>{
             }
         }
     }
-    
+
+    // Restore per-entry state after activating the preset's lorebooks.
+    if (preset?.entryStates) {
+        try {
+            await applyLorebookEntryStates(preset.entryStates, preset.worldList);
+        } catch (error) {
+            console.error(`STWIL: Error restoring lorebook entry states for preset "${preset.name}":`, error);
+            if (settings.showLockNotifications) {
+                toastr.warning(
+                    tKey('stwil.toast.entryStatesApplyFailed', 'Failed to restore some lorebook entry states for preset "${0}"', escapeHtml(preset.name)),
+                    translate('World Info Presets', 'stwil.title')
+                );
+            }
+        }
+    }
+
     // Update internal state
     settings.presetName = preset?.name ?? '';
     updateSelect();
@@ -1227,6 +1385,7 @@ const importSinglePreset = async(file)=>{
                 if (overwrite) {
                     old.worldList = data.worldList; 
                     old.worldInfoSettings = data.worldInfoSettings ?? null;
+                    old.entryStates = data.entryStates ?? null;
                     await importBooks(data);
                     await importCharacterLocks(data);
                     await importGroupLocks(data);
@@ -1246,6 +1405,7 @@ const importSinglePreset = async(file)=>{
         preset.name = data.name;
         preset.worldList = data.worldList;
         preset.worldInfoSettings = data.worldInfoSettings ?? null;
+        preset.entryStates = data.entryStates ?? null;
         settings.presetList.push(preset);
         await importBooks(data);
         await importCharacterLocks(data);
@@ -1258,6 +1418,10 @@ const importSinglePreset = async(file)=>{
     }
 };
 
+/**
+ * Ask which global World Info settings and per-entry states to include in a preset.
+ * @returns {Promise<{includeSettings: boolean, includeEntryStates: boolean, selectedSettings: string[]}|null>} Selected options, or null if cancelled.
+ */
 async function showSettingsSelectionDialog() {
     const categories = getSettingsCategories();
     const allSettings = Object.values(categories).flatMap(cat => cat.settings);
@@ -1275,6 +1439,16 @@ async function showSettingsSelectionDialog() {
             </label>
             <small class="displayBlock indent20p" style="color: var(--grey50);">
                 ${translate('When enabled, switching to this preset will also apply the selected global settings.', 'stwil.settings.inclusion.whenEnabled')}
+            </small>
+        </div>
+
+        <div class="marginBot10">
+            <label class="checkbox_label">
+                <input type="checkbox" id="includeEntryStatesToggle" checked>
+                <span><strong>Include lorebook entry states in preset</strong></span>
+            </label>
+            <small class="displayBlock indent20p" style="color: var(--grey50);">
+                When enabled, switching to this preset restores each active lorebook entry's enabled state and Trigger %.
             </small>
         </div>
 
@@ -1371,16 +1545,19 @@ async function showSettingsSelectionDialog() {
     if (!result) return null;
 
     const includeSettings = includeToggle.checked;
+    const includeEntryStates = content.querySelector('#includeEntryStatesToggle')?.checked ?? false;
     const selectedSettings = includeSettings ?
         Array.from(content.querySelectorAll('.settingCheckbox:checked')).map(cb => cb.dataset.setting) :
         [];
 
     return {
         includeSettings,
+        includeEntryStates,
         selectedSettings
     };
 }
 
+/** Create a preset from the current lorebook selection and selected saved state options. */
 const createPreset = async()=>{
     const nameContent = document.createElement('div');
     nameContent.innerHTML = `<h3>${translate('Preset Name:', 'stwil.dialog.presetName.title')}</h3>`;
@@ -1412,6 +1589,8 @@ const createPreset = async()=>{
         preset.worldInfoSettings = null;
         console.log(`STWIL: Created preset "${name}" without world info settings`);
     }
+
+    preset.entryStates = settingsToInclude.includeEntryStates ? await snapshotLorebookEntryStates(preset.worldList) : null;
 
     settings.presetList.push(preset);
     settings.presetName = name;
@@ -1584,11 +1763,29 @@ const init = ()=>{
                 btnUpdate.classList.add('menu_button', 'fa-solid', 'fa-save');
                 btnUpdate.setAttribute('data-i18n', '[title]stwil.ui.updateButton.title');
                 btnUpdate.title = translate('Update current preset', 'stwil.ui.updateButton.title');
-                btnUpdate.addEventListener('click', ()=>{
+                btnUpdate.addEventListener('click', async()=>{
                     if (!settings.preset) return createPreset();
-                    settings.preset.worldList = [...world_info.globalSelect];
-                    settings.preset.worldInfoSettings = snapshotWorldInfoSettings();
+                    const settingsToInclude = await showSettingsSelectionDialog();
+                    if (!settingsToInclude) return;
+
+                    const preset = settings.preset;
+                    preset.worldList = [...world_info.globalSelect];
+
+                    if (settingsToInclude.includeSettings) {
+                        const fullSettings = snapshotWorldInfoSettings();
+                        preset.worldInfoSettings = Object.fromEntries(
+                            Object.entries(fullSettings).filter(([key]) => settingsToInclude.selectedSettings.includes(key))
+                        );
+                    } else {
+                        preset.worldInfoSettings = null;
+                    }
+
+                    preset.entryStates = settingsToInclude.includeEntryStates ? await snapshotLorebookEntryStates(preset.worldList) : null;
                     saveSettingsDebounced();
+                    toastr.success(
+                        tKey('stwil.toast.presetUpdated', 'Updated preset "${0}"', escapeHtml(preset.name)),
+                        translate('World Info Presets', 'stwil.title')
+                    );
                 });
                 actions.append(btnUpdate);
             }
@@ -1827,6 +2024,10 @@ const init = ()=>{
                 if (dlg.result == POPUP_RESULT.AFFIRMATIVE) {
                     for (const preset of presets) {
                         preset.worldList.splice(preset.worldList.indexOf(oldName), 1, newName);
+                        if (preset.entryStates && Object.prototype.hasOwnProperty.call(preset.entryStates, oldName)) {
+                            preset.entryStates[newName] = preset.entryStates[oldName];
+                            delete preset.entryStates[oldName];
+                        }
                     }
                     saveSettingsDebounced();
                     updateSelect(); // Update the UI to reflect changes
