@@ -243,18 +243,26 @@ async function applyLorebookEntryStates(entryStates, worldList = []) {
                     throw new Error(`Failed to save restored lorebook "${bookName}": ${response.status} ${response.statusText}`);
                 }
             };
-            await saveBook(book);
-
-            // A same-book editor save may have updated the cache while the restore
-            // request was in flight. Persist that newer version rather than leaving
-            // the restored snapshot as the last write to disk.
-            const latestBook = worldInfoCache.get(bookName);
-            const latestIsDifferent = JSON.stringify(latestBook) !== JSON.stringify(book);
-            if (latestIsDifferent) {
-                await saveBook(latestBook);
+            // Keep saving until the cache stops changing. The editor updates this
+            // cache synchronously before scheduling its own debounced save, so this
+            // catches same-book edits made while any direct request is in flight.
+            let bookToSave = book;
+            while (true) {
+                await saveBook(bookToSave);
+                const latestBook = worldInfoCache.get(bookName);
+                if (JSON.stringify(latestBook) === JSON.stringify(bookToSave)) {
+                    break;
+                }
+                bookToSave = latestBook;
             }
+
+            // The direct API request does not update SillyTavern's cache itself.
+            // Re-publish the final cached version after persistence, without replacing
+            // any newer editor data, so scans and the open editor see the same state.
+            const latestBook = worldInfoCache.get(bookName);
+            worldInfoCache.set(bookName, latestBook);
             reloadEditor(bookName);
-            await eventSource.emit(event_types.WORLDINFO_UPDATED, bookName, latestIsDifferent ? latestBook : book);
+            await eventSource.emit(event_types.WORLDINFO_UPDATED, bookName, latestBook);
         }
     }
     if (failedBooks.length > 0) {
